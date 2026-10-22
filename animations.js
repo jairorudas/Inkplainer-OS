@@ -1770,6 +1770,46 @@ function tickSpecialized(speed) {
 // ─── 7. ANIMATION CORE
 // ─── PARALLEL-SLOT ANIMATION SYSTEM ───────────────────────────────────────────
 //
+// Time-based entrance. The layer model is never mutated: only this frame's
+// drawing coordinates change, and finishAnim bakes the configured final state.
+function setupSlideIn() {
+  const layer = state._currentSlot?.layer || state.layers[state.activeLayerIndex];
+  state.slideElapsedMs = 0;
+  state.slideLastTs = null;
+  state.slideDurationMs = Math.max(100, Number(layer?.slideDurationMs) || 1200);
+  state.slideDirection = layer?.slideDirection || 'left';
+  state.slideTransition = layer?.slideTransition || 'linear';
+}
+
+function tickSlideIn() {
+  const layer = state._currentSlot?.layer || state.layers[state.activeLayerIndex];
+  if (!layer) { finishAnim(); return; }
+  const now = performance.now();
+  if (state.slideLastTs !== null) state.slideElapsedMs += Math.max(0, now - state.slideLastTs);
+  state.slideLastTs = now;
+  const t = Math.min(1, state.slideElapsedMs / state.slideDurationMs);
+  const ease = 1 - Math.pow(1 - t, 3);
+  let startX = layer.x, startY = layer.y;
+  if (state.slideDirection === 'right') startX = state.canvasW;
+  else if (state.slideDirection === 'top') startY = -layer.h;
+  else if (state.slideDirection === 'bottom') startY = state.canvasH;
+  else startX = -layer.w;
+  const x = startX + (layer.x - startX) * ease;
+  const y = startY + (layer.y - startY) * ease;
+  const baseOpacity = layer.opacity ?? 1;
+  let alpha = baseOpacity;
+  if (state.slideTransition === 'fade-in') alpha = baseOpacity * t;
+  else if (state.slideTransition === 'fade-out') alpha = baseOpacity * (1 - t);
+  ctx.clearRect(0, 0, state.canvasW, state.canvasH);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(layer.img, x, y, layer.w, layer.h);
+  ctx.restore();
+  hctx.clearRect(0, 0, state.canvasW, state.canvasH);
+  setProgress(t);
+  if (t >= 1) finishAnim();
+}
+
 // Layers with the same animOrder number animate simultaneously.
 // Each simultaneous layer gets its own "slot": an isolated offscreen canvas + a
 // copy of all the per-animation state variables.  Every rAF tick swaps state in,
@@ -1792,6 +1832,7 @@ const _SLOT_KEYS = [
   'noFlashFinish','contentBounds','animStyle','hand','zigzag','textAnimDir','textDrawStyle','outlineDetect','outlineAlgorithm','outlineStrokeStyle',
   'stPhase','stOutlineCanvas','stOutlinePts','stOutlineIdx','stOutlineLastDrawn',
   'stFillPts','stOutlineColor','stOutlineThickness',
+  'slideElapsedMs','slideLastTs','slideDurationMs','slideDirection','slideTransition',
 ];
 
 // Swap slot state → global state (+ swap ctx/offscreen)
@@ -1825,6 +1866,7 @@ function _tickSlot(slot) {
   _push('spec-tile-slider',  slot.layer.specChunks ?? 35);
 
   switch (state.animStyle) {
+    case 'slidein':       tickSlideIn();            break;
     case 'contour':       tickContour(speed);       break;
     case 'outlinechunks': tickOutlineChunks(speed); break;
     case 'outlinefill':   tickOutlineFill(speed);   break;
@@ -3546,6 +3588,7 @@ function setOutlineOpacity(val) {
     setupScribble,
     setupSpecText,
     setupSpecialized,
+    setupSlideIn,
     
     // Core animation algorithms
     tickScanner,
@@ -3558,6 +3601,7 @@ function setOutlineOpacity(val) {
     tickScribble,
     tickSpecText,
     tickSpecialized,
+    tickSlideIn,
     
     // Helper functions (used by setupStyle and animations)
     buildPresenceMap,

@@ -763,7 +763,13 @@ kbd {
           <div class="style-card-desc">Detects edges, groups them into chunks, and draws each chunk one at a time. Builds up as a collection of strokes rather than tiles.</div>
           <div class="style-card-meta">Best for: diagrams, technical drawings, illustrations with strong graphic lines.</div>
         </div>
+        <div class="style-card">
+          <div class="style-card-title">Slide In</div>
+          <div class="style-card-desc">Starts the complete layer outside the canvas and moves it to its exact saved position. Choose Left, Right, Top, or Bottom and set an explicit duration from 0.1 to 10 seconds.</div>
+          <div class="style-card-meta">Linear keeps the configured opacity; Fade In rises from transparent; Fade Out becomes transparent during travel and restores the configured opacity on the final frame so the finished composition remains unchanged.</div>
+        </div>
       </div>
+      <p class="doc-p">Slide In uses elapsed time rather than a fixed number of frames. Its duration therefore remains consistent across different display refresh rates, canvas resolutions, preview playback, and video export.</p>
       <p class="doc-p">The <strong>Chunks slider (6–80)</strong> appears for Chunk Jump and Outline Chunks. Low values (6–15) = large chunks that appear quickly. High values (50–80) = many small tiles building up gradually.</p>
 
       <hr class="doc-hr">
