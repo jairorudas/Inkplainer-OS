@@ -14,7 +14,7 @@ Turn images and text into hand-drawn explainer videos — no sign-up, no waterma
 
 ## Features
 
-- **Multiple animation styles** — Chunk Jump, Scanner, Contour, Outline Chunks, plus 7 subject-aware Specialized styles (Human, Animal, Portrait, Vehicle, Building, Landscape, Spiral)
+- **Multiple animation styles** — Slide In, Chunk Jump, Scanner, Contour, Outline Chunks, plus 7 subject-aware Specialized styles (Human, Animal, Portrait, Vehicle, Building, Landscape, Spiral)
 - **Advanced drawing control** — 5 stroke styles, 4 outline detection algorithms, 3 coloring styles, and 6 image reveal animations
 - **Layer system** — stack images and text layers, set animation order, animate them in sequence or in parallel
 - **Smooth, adjustable hand movement** — the hand glides continuously across the canvas by default, with a switch to revert to the original snap-to-position movement if you prefer it
@@ -162,6 +162,9 @@ You can also save up to 6 custom presets by clicking "+ Save current settings" a
 | **Scanner** | Image revealed in horizontal bands sweeping left to right, top to bottom. Includes a Zigzag toggle to alternate scan direction. |
 | **Contour** | Two phases: first traces the visible silhouette pixel by pixel, then fills the interior with tight zigzag hatching strokes. |
 | **Outline Chunks** | Detects edges, groups them into chunks, and draws each chunk one at a time. |
+| **Slide In** | Moves the complete layer from outside the canvas to its exact configured position. Choose Left, Right, Top, or Bottom; set an explicit duration from 0.1–10 seconds; and use Linear, Fade In, or Fade Out. |
+
+Slide In timing is elapsed-time based, so its configured duration is independent of display frame rate. Linear keeps the layer at its configured opacity throughout. Fade In goes from transparent to the configured opacity. Fade Out decreases to transparent during travel, then restores the configured opacity on the final frame; this deliberate final restore keeps the saved composition and exported final frame unchanged.
 
 The **Chunks slider (6–80)** appears for Chunk Jump and Outline Chunks. Low values (6–15) = large chunks that appear quickly. High values (50–80) = many small tiles building up gradually.
 

@@ -3459,6 +3459,29 @@ input[type="number"]:focus { border-color: var(--accent); }
           <div class="anim-opt"         data-anim="contour"   onclick="selectAnim(this)">Contour</div>
           <div class="anim-opt"         data-anim="outlinechunks" onclick="selectAnim(this)">Outline Chunks</div>
           <div class="anim-opt selected" data-anim="chunkjump" onclick="selectAnim(this)">Chunk Jump</div>
+          <div class="anim-opt" data-anim="slidein" onclick="selectAnim(this)">Slide In</div>
+        </div>
+
+        <div id="slidein-opts" style="display:none">
+          <div class="section-sublabel">Entry direction</div>
+          <div class="anim-grid" id="slide-direction-grid" style="grid-template-columns:repeat(4,1fr)">
+            <div class="anim-opt selected" data-slide-direction="left" onclick="setSlideDirection(this)">Left</div>
+            <div class="anim-opt" data-slide-direction="right" onclick="setSlideDirection(this)">Right</div>
+            <div class="anim-opt" data-slide-direction="top" onclick="setSlideDirection(this)">Top</div>
+            <div class="anim-opt" data-slide-direction="bottom" onclick="setSlideDirection(this)">Bottom</div>
+          </div>
+          <div class="section-sublabel">Duration</div>
+          <div class="slider-row">
+            <input type="range" id="slide-duration-slider" min="0.1" max="10" step="0.1" value="1.2" oninput="setSlideDuration(this.value)">
+            <span class="slider-val" id="slide-duration-val">1.2s</span>
+          </div>
+          <div class="section-sublabel">Opacity transition</div>
+          <div class="anim-grid anim-grid-3" id="slide-transition-grid">
+            <div class="anim-opt selected" data-slide-transition="linear" onclick="setSlideTransition(this)">Linear</div>
+            <div class="anim-opt" data-slide-transition="fade-in" onclick="setSlideTransition(this)">Fade In</div>
+            <div class="anim-opt" data-slide-transition="fade-out" onclick="setSlideTransition(this)">Fade Out</div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);line-height:1.4">Fade Out restores the layer's configured opacity on the final frame.</div>
         </div>
 
         <div id="scanner-opts" style="display:none">
@@ -4431,6 +4454,9 @@ function saveProject(projectId = currentProjectId) {
           outlineThickness: layer.outlineThickness,
           textAnimDir: layer.textAnimDir,
           textDrawStyle: layer.textDrawStyle,
+          slideDirection: layer.slideDirection,
+          slideDurationMs: layer.slideDurationMs,
+          slideTransition: layer.slideTransition,
           // Text layer properties
           kind: layer.kind,
           textProps: layer.textProps,
@@ -4610,6 +4636,9 @@ function loadProject(projectId) {
                 outlineThickness: layerData.outlineThickness,
                 textAnimDir: layerData.textAnimDir,
                 textDrawStyle: layerData.textDrawStyle,
+                slideDirection: layerData.slideDirection || 'left',
+                slideDurationMs: layerData.slideDurationMs !== undefined ? layerData.slideDurationMs : 1200,
+                slideTransition: layerData.slideTransition || 'linear',
                 // Text layer properties
                 kind: layerData.kind || null,
                 textProps: layerData.textProps || null,
@@ -5057,6 +5086,9 @@ function _serializeState() {
       textAnimDir: layer.textAnimDir,
       textDrawStyle: layer.textDrawStyle,
       zigzag: layer.zigzag,
+      slideDirection: layer.slideDirection,
+      slideDurationMs: layer.slideDurationMs,
+      slideTransition: layer.slideTransition,
     })),
   };
 }
@@ -5197,6 +5229,9 @@ function _applySnapshot(snap, label) {
           textAnimDir: ld.textAnimDir,
           textDrawStyle: ld.textDrawStyle,
           zigzag: ld.zigzag,
+          slideDirection: ld.slideDirection || 'left',
+          slideDurationMs: ld.slideDurationMs !== undefined ? ld.slideDurationMs : 1200,
+          slideTransition: ld.slideTransition || 'linear',
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
@@ -5948,6 +5983,9 @@ function addLayer(img, name) {
     handSpeed: 6,
     chunks: 30,
     specChunks: 35,
+    slideDirection: 'left',
+    slideDurationMs: 1200,
+    slideTransition: 'linear',
     hasPngAlpha };
   state.layers.push(layer);
   
@@ -6025,6 +6063,7 @@ function syncSidebarToLayer(id) {
   const isSpec        = anim.startsWith('spec-');
   const isOutline     = anim === 'illustfill' || anim === 'outlinefill';
   const isOutlineOnly = anim === 'outlineonly';
+  const isSlideIn     = anim === 'slidein';
   document.getElementById('scanner-opts').style.display         = isScanner     ? 'block' : 'none';
   document.getElementById('tile-opts').style.display            = isChunk       ? 'block' : 'none';
   document.getElementById('spec-tile-opts').style.display       = isSpec        ? 'block' : 'none';
@@ -6033,6 +6072,7 @@ function syncSidebarToLayer(id) {
   document.getElementById('card-outlineonlyopts').style.display = isOutlineOnly ? 'block' : 'none';
   const isDetectMode = isOutline || isOutlineOnly || anim === 'spec-text';
   document.getElementById('outline-detect-opts').style.display  = isDetectMode  ? 'block' : 'none';
+  document.getElementById('slidein-opts').style.display         = isSlideIn     ? 'block' : 'none';
 
   // Sync sliders (panels above are already in their final visible/hidden state now)
   const setSlider = (id, valId, val) => {
@@ -6047,6 +6087,17 @@ function syncSidebarToLayer(id) {
   setSlider('hand-speed-slider', 'hand-speed-val', layer.handSpeed ?? 6);
   setSlider('tile-slider',       'tile-val',       layer.chunks    ?? 30);
   setSlider('spec-tile-slider',  'spec-tile-val',  layer.specChunks?? 35);
+  const slideDuration = Math.max(100, layer.slideDurationMs ?? 1200);
+  const slideDurationEl = document.getElementById('slide-duration-slider');
+  if (slideDurationEl) {
+    slideDurationEl.value = slideDuration / 1000;
+    updateSliderFill(slideDurationEl);
+    document.getElementById('slide-duration-val').textContent = (slideDuration / 1000).toFixed(1) + 's';
+  }
+  document.querySelectorAll('#slide-direction-grid [data-slide-direction]').forEach(el =>
+    el.classList.toggle('selected', el.dataset.slideDirection === (layer.slideDirection || 'left')));
+  document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
+    el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
   // BUG FIX: sync zigzag toggle to per-layer state
   const zigzagVal = (layer.zigzag !== undefined) ? layer.zigzag : state.zigzag;
   document.getElementById('zigzag-toggle').classList.toggle('on', zigzagVal);
@@ -6079,6 +6130,32 @@ function syncSidebarToLayer(id) {
 
 function getLayerById(id) { return state.layers.find(l=>l.id===id); }
 function getSelectedLayer() { return getLayerById(state.selectedLayerId); }
+
+function setSlideDirection(el) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); clearActivePreset();
+  layer.slideDirection = el.dataset.slideDirection;
+  document.querySelectorAll('#slide-direction-grid [data-slide-direction]').forEach(x => x.classList.toggle('selected', x === el));
+  scheduleAutoSave();
+}
+function setSlideDuration(seconds) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  if (!layer._slideDurationUndoPending) { pushUndoSnapshot(); layer._slideDurationUndoPending = true; }
+  const value = Math.max(0.1, Math.min(10, Number(seconds) || 1.2));
+  layer.slideDurationMs = Math.round(value * 1000);
+  document.getElementById('slide-duration-val').textContent = value.toFixed(1) + 's';
+  updateSliderFill(document.getElementById('slide-duration-slider'));
+  scheduleAutoSave();
+  clearTimeout(layer._slideDurationUndoTimer);
+  layer._slideDurationUndoTimer = setTimeout(() => { delete layer._slideDurationUndoPending; delete layer._slideDurationUndoTimer; }, 300);
+}
+function setSlideTransition(el) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); clearActivePreset();
+  layer.slideTransition = el.dataset.slideTransition;
+  document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(x => x.classList.toggle('selected', x === el));
+  scheduleAutoSave();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ANIMATION GENERATION & ORCHESTRATION
@@ -7953,6 +8030,7 @@ function selectAnim(el) {
   const isScribble= anim === 'scribble';
   const isScanner = anim === 'scanner';
   const isOutlineChunks = anim === 'outlinechunks';
+  const isSlideIn = anim === 'slidein';
 
   document.getElementById('scanner-opts').style.display   = isScanner                            ? 'block' : 'none';
   document.getElementById('tile-opts').style.display      = (isChunk||isScribble||isOutlineChunks) ? 'block' : 'none';
@@ -7962,6 +8040,8 @@ function selectAnim(el) {
   document.getElementById('card-outlineonlyopts').style.display= (anim==='outlineonly') ? 'block' : 'none';
   document.getElementById('card-textopts').style.display        = (anim==='spec-text')  ? 'block' : 'none';
   document.getElementById('outline-detect-opts').style.display  = _OUTLINE_ANIM_MODES.has(anim) ? 'block' : 'none';
+  document.getElementById('slidein-opts').style.display         = isSlideIn ? 'block' : 'none';
+  if (isSlideIn && layer) syncSidebarToLayer(layer.id);
   // Sync detection slider value to selected layer (or global)
   if (_OUTLINE_ANIM_MODES.has(anim)) {
     const layer3 = getSelectedLayer();
@@ -8539,6 +8619,9 @@ function _commitTextLayer(text) {
       handSpeed:  _oldLayer ? _oldLayer.handSpeed  : 6,
       chunks:     _oldLayer ? _oldLayer.chunks     : 30,
       specChunks: _oldLayer ? _oldLayer.specChunks : 35,
+      slideDirection: _oldLayer ? (_oldLayer.slideDirection || 'left') : 'left',
+      slideDurationMs: _oldLayer ? (_oldLayer.slideDurationMs ?? 1200) : 1200,
+      slideTransition: _oldLayer ? (_oldLayer.slideTransition || 'linear') : 'linear',
       hasPngAlpha: true,
       // Text metadata for re-editing
       kind:            'text',
@@ -8711,6 +8794,7 @@ function _flattenOffscreenColors(canvas, maxColors) {
 // Calls the appropriate setup function from AnimationEngine based on current style
 function setupStyle() {
   switch(state.animStyle) {
+    case 'slidein':        AnimationEngine.setupSlideIn();                   break;
     case 'contour':         AnimationEngine.setupContour();                  break;
     case 'outlinechunks':   AnimationEngine.setupOutlineChunks();            break;
     case 'outlinefill':     AnimationEngine.setupOutlineFill();              break;
@@ -8783,6 +8867,7 @@ function animate() {
   if (!offscreen) return;
   const speed = _cachedElements.speedSlider ? parseInt(_cachedElements.speedSlider.value) : 40;
   switch(state.animStyle) {
+    case 'slidein':        AnimationEngine.tickSlideIn();           break;
     case 'contour':        AnimationEngine.tickContour(speed);      break;
     case 'outlinefill':    AnimationEngine.tickOutlineFill(speed);  break;
     case 'illustfill':     AnimationEngine.tickIllustFill(speed);   break;
@@ -8849,12 +8934,20 @@ function restartAnim() {
   resetAnim(); setupStyle(); startAnim();
 }
 
-function startAnim()  { state.playing=true; updatePlayIcons(); animate(); }
+function startAnim()  {
+  (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
+  state.slideLastTs = null;
+  state.playing=true; updatePlayIcons(); animate();
+}
 
 function togglePlay() {
   if (state.done) { restartAnim(); return; }
   state.playing=!state.playing; updatePlayIcons();
-  if (state.playing) animate();
+  if (state.playing) {
+    (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
+    state.slideLastTs = null;
+    animate();
+  }
 }
 
 function updatePlayIcons() {
@@ -9531,14 +9624,22 @@ function recordMP4(progressText, progressBar) {
       let frameCount   = 0;
       let rafId        = null;
       let encodingDone = false;
+      let lastCaptureMs = null;
 
       progressText.textContent = 'Encoding MP4…';
       progressBar.style.width  = '0%';
 
       restartAnim();
 
-      function captureFrame() {
+      function captureFrame(nowMs) {
         if (!state.recording || encodingDone) return;
+
+        // Match the 30 fps muxer timeline even on 60/120 Hz displays.
+        if (lastCaptureMs !== null && nowMs - lastCaptureMs < (1000 / FPS) - 1) {
+          rafId = requestAnimationFrame(captureFrame);
+          return;
+        }
+        lastCaptureMs = nowMs;
 
         // Back-pressure: skip frame if encoder queue is backing up
         if (videoEncoder.encodeQueueSize > 12) {
@@ -10404,6 +10505,9 @@ function applySlices() {
     opacity:            layer.opacity             ?? 1,
     speed:              layer.speed               ?? 40,
     handSpeed:          layer.handSpeed           ?? 6,
+    slideDirection:     layer.slideDirection      || 'left',
+    slideDurationMs:    layer.slideDurationMs     ?? 1200,
+    slideTransition:    layer.slideTransition     || 'linear',
   };
 
   const origIdx = state.layers.indexOf(layer);
