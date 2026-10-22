@@ -1943,7 +1943,7 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-zoom input { width: 90px; }
 .tl-body { display: flex; height: 168px; border-top: 1px solid var(--border); }
 .tl-labels { width: 92px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--sidebar); padding-top: 22px; }
-.tl-label { height: 44px; display: flex; align-items: center; padding: 0 10px; font-size: 10px; color: var(--muted-hi); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-label { height: 44px; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 10px; font-size: 10px; color: var(--muted-hi); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-scroll { position: relative; flex: 1; overflow: auto; }
 .tl-inner { position: relative; min-height: 100%; }
 .tl-ruler { position: sticky; top: 0; height: 22px; background: var(--sidebar); border-bottom: 1px solid var(--border); z-index: 3; cursor: pointer; }
@@ -1959,7 +1959,19 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-handle { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2; }
 .tl-handle.l { left: 0; } .tl-handle.r { right: 0; }
 .tl-handle:hover { background: rgba(47,158,68,.35); }
-.tl-playhead { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid #e03131; z-index: 4; pointer-events: none; }
+.tl-playhead { position: absolute; top: 0; bottom: 0; width: 13px; margin-left: -6px; z-index: 4; cursor: ew-resize; }
+.tl-playhead::after { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; border-left: 2px solid #e03131; }
+.tl-playhead-handle { position: absolute; left: 0; top: 0; width: 13px; height: 14px; background: #e03131; border-radius: 3px 3px 8px 8px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.tl-playhead:hover .tl-playhead-handle { background: #c92a2a; }
+.tl-btn.tl-primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; font-weight: 600; }
+.tl-btn.tl-primary:hover { background: #333; }
+.tl-sep { width: 1px; align-self: stretch; background: var(--border-hi); margin: 2px 2px; }
+.tl-icon-btn { width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted-hi); }
+.tl-icon-btn.muted { color: #e03131; background: #fdecec; border-color: #f3b4b4; }
+.tl-label .tl-lname { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tl-label .tl-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 4px; opacity: 0; }
+.tl-label:hover .tl-x { opacity: 1; }
+.tl-label .tl-x:hover { color: #e03131; background: #fdecec; }
 .tl-inspector { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--border); min-height: 32px; color: var(--muted-hi); }
 .tl-inspector input[type=range] { width: 90px; }
 .tl-inspector select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel); }
@@ -4145,14 +4157,17 @@ input[type="number"]:focus { border-color: var(--accent); }
   <div id="timeline-panel" class="collapsed">
     <div class="tl-head">
       <span class="tl-title" onclick="tlToggle()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>Timeline</span>
-      <button class="tl-btn" id="tl-play" onclick="TL.playing ? tlStopAudio(false) : tlPlayAudio()" title="Preview the audio from the playhead">▶ Audio</button>
-      <button class="tl-btn" onclick="tlStopAudio(true)" title="Stop and return to the start">■</button>
+      <button class="tl-btn tl-primary" id="tl-run" onclick="tlPlayAll()" title="Play the animation together with its audio (pauses and resumes)">▶ Play</button>
+      <button class="tl-btn" onclick="tlRestartAll()" title="Restart the animation and the audio from the beginning">⟲ Restart</button>
+      <button class="tl-btn" onclick="tlStopAll()" title="Stop everything and go back to the start">■ Stop</button>
+      <span class="tl-sep"></span>
+      <button class="tl-btn" id="tl-play" onclick="TL.playing ? tlStopAudio(false) : tlPlayAudio()" title="Listen to the audio only, from the red line">♪ Audio only</button>
       <span id="tl-time">0:00.0</span>
       <button class="tl-btn" onclick="document.getElementById('tl-file').click()">+ Add audio</button>
       <input type="file" id="tl-file" accept="audio/*" multiple style="display:none" onchange="tlAddFiles(this.files); this.value=''">
       <button class="tl-btn" onclick="tlAddTrack()">+ Track</button>
       <button class="tl-btn" onclick="tlOpenR2()" title="Pick narration from the narration/ folder of your R2 bucket">R2 narration</button>
-      <button class="tl-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)">🔊</button>
+      <button class="tl-btn tl-icon-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)" aria-label="Mute preview"></button>
       <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="tlSetZoom(+this.value)"></div>
     </div>
     <div class="tl-body">
@@ -6794,6 +6809,7 @@ function _generateNow() {
   state._revealFinalCanvas = null;
   state._dissolveMap   = null;
   state._animProgress  = 0;
+  state._runId = (state._runId || 0) + 1;
   state._runLog = { t0: performance.now(), groups: [], pausedMs: 0, pausedAt: null };
   tlRunStarted();
   cameraReset();
@@ -7159,10 +7175,10 @@ function tlRender() {
     const tick = document.createElement('div'); tick.className = 'tl-tick'; tick.style.left = t * TL.pps + 'px'; tick.textContent = tlFmt(t).replace(/\.0$/, '');
     ruler.appendChild(tick);
   }
-  ruler.onmousedown = e => { tlSeekFromEvent(e); const mv = ev => tlSeekFromEvent(ev); const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }; document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); };
+  ruler.onmousedown = tlScrub;
   frag.appendChild(ruler);
   // groups lane
-  const glane = document.createElement('div'); glane.className = 'tl-lane';
+  const glane = document.createElement('div'); glane.className = 'tl-lane'; glane.onmousedown = e => { if (e.target === glane) tlScrub(e); };
   tlLayout().forEach((g, i) => {
     const b = document.createElement('div'); b.className = 'tl-block tl-group' + (g.est ? ' est' : '');
     b.style.left = g.start * TL.pps + 'px'; b.style.width = Math.max(8, g.dur * TL.pps) + 'px';
@@ -7172,18 +7188,30 @@ function tlRender() {
   frag.appendChild(glane);
   // audio lanes
   TL.tracks.forEach(tr => {
-    const lane = document.createElement('div'); lane.className = 'tl-lane'; lane.dataset.track = tr.id;
+    const lane = document.createElement('div'); lane.className = 'tl-lane'; lane.dataset.track = tr.id; lane.onmousedown = e => { if (e.target === lane) tlScrub(e); };
     tr.clips.forEach(c => lane.appendChild(tlClipEl(c)));
     frag.appendChild(lane);
   });
-  const ph = document.createElement('div'); ph.className = 'tl-playhead'; ph.id = 'tl-playhead'; ph.style.left = TL.playhead * TL.pps + 'px';
+  const ph = document.createElement('div'); ph.className = 'tl-playhead'; ph.id = 'tl-playhead'; ph.title = 'Drag to move the playhead';
+  ph.style.left = TL.playhead * TL.pps + 'px';
+  const handle = document.createElement('div'); handle.className = 'tl-playhead-handle'; ph.appendChild(handle);
+  ph.onmousedown = tlScrub;
   frag.appendChild(ph);
   inner.textContent = ''; inner.appendChild(frag);
   // lane labels
   const labels = document.getElementById('tl-labels'); labels.textContent = '';
-  const mk = txt => { const d = document.createElement('div'); d.className = 'tl-label'; d.textContent = txt; return d; };
+  const mk = (txt, trackId) => {
+    const d = document.createElement('div'); d.className = 'tl-label';
+    const n = document.createElement('span'); n.className = 'tl-lname'; n.textContent = txt; n.title = txt; d.appendChild(n);
+    if (trackId !== undefined && TL.tracks.length > 1) {
+      const x = document.createElement('button'); x.className = 'tl-x'; x.textContent = '✕'; x.title = 'Remove this track';
+      x.onclick = () => tlRemoveTrack(trackId); d.appendChild(x);
+    }
+    return d;
+  };
   labels.appendChild(mk('Groups'));
-  TL.tracks.forEach(tr => labels.appendChild(mk(tr.name)));
+  TL.tracks.forEach(tr => labels.appendChild(mk(tr.name, tr.id)));
+  tlSyncMuteIcon();
   tlDrawWaves(); tlInspector();
   document.getElementById('tl-time').textContent = tlFmt(TL.playhead);
 }
@@ -7253,10 +7281,23 @@ function tlDrag(e, c, mode) {
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
   tlRender();
 }
-function tlSeekFromEvent(e) {
-  const r = document.getElementById('tl-ruler').getBoundingClientRect();
-  TL.playhead = Math.max(0, (e.clientX - r.left) / TL.pps);
-  if (TL.playing) tlPlayAudio(); else { document.getElementById('tl-playhead').style.left = TL.playhead * TL.pps + 'px'; document.getElementById('tl-time').textContent = tlFmt(TL.playhead); }
+function tlMovePlayhead() {
+  const ph = document.getElementById('tl-playhead'); if (ph) ph.style.left = TL.playhead * TL.pps + 'px';
+  const tm = document.getElementById('tl-time'); if (tm) tm.textContent = tlFmt(TL.playhead);
+}
+// Drag the red line (or click the ruler / an empty part of a lane) to move the playhead.
+// The audio is paused while dragging and resumes from the new spot. The drawing itself cannot be
+// moved: only a restart replays it.
+function tlScrub(e) {
+  e.preventDefault(); e.stopPropagation();
+  const was = TL.playing; if (was) tlStopAudio(false);
+  const set = ev => {
+    const r = document.getElementById('tl-ruler').getBoundingClientRect();
+    TL.playhead = Math.max(0, (ev.clientX - r.left) / TL.pps); tlMovePlayhead();
+  };
+  set(e);
+  const up = () => { document.removeEventListener('mousemove', set); document.removeEventListener('mouseup', up); if (was) tlPlayAudio(TL.playhead); };
+  document.addEventListener('mousemove', set); document.addEventListener('mouseup', up);
 }
 function tlSetZoom(v) { TL.pps = v; tlRender(); }
 function tlToggle(force) {
@@ -7269,7 +7310,16 @@ function tlToggle(force) {
 
 // -- audio clips --
 function tlOpenR2() { openR2Modal(); r2SetMode('audio'); }
-function tlAddTrack() { TL.tracks.push({ id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), clips: [] }); tlRender(); }
+function tlRemoveTrack(id) {
+  if (TL.tracks.length < 2) return;
+  const t = TL.tracks.find(x => x.id === id); if (!t) return;
+  if (t.clips.length && !confirm(`Remove "${t.name}" and its ${t.clips.length} clip${t.clips.length > 1 ? 's' : ''}?\n\nYou can bring it back with Undo.`)) return;
+  pushUndoSnapshot();
+  TL.tracks = TL.tracks.filter(x => x.id !== id);
+  if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
+  tlRender(); tlChanged();
+}
+function tlAddTrack() { pushUndoSnapshot(); TL.tracks.push({ id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), clips: [] }); tlRender(); tlChanged(); }
 async function tlAddFiles(files, trackId) {
   const AC = window.AudioContext || window.webkitAudioContext;
   TL.actx = TL.actx || new AC();
@@ -7328,6 +7378,7 @@ function tlGraphTarget() {
 function tlPlayAudio(fromSec) {
   tlStopAudio(false);
   if (fromSec !== undefined) TL.playhead = fromSec;
+  else if (TL.playhead >= tlAudioEnd() - 0.05) TL.playhead = 0;      // already at the end: play again from the start
   if (!tlHasAudio()) return;
   const AC = window.AudioContext || window.webkitAudioContext; TL.actx = TL.actx || new AC();
   TL.actx.resume();
@@ -7346,25 +7397,50 @@ function tlPlayAudio(fromSec) {
   const tick = () => {
     if (!TL.playing) return;
     TL.playhead = TL.actx.currentTime - TL.t0;
-    const ph = document.getElementById('tl-playhead'); if (ph) ph.style.left = TL.playhead * TL.pps + 'px';
-    const tm = document.getElementById('tl-time'); if (tm) tm.textContent = tlFmt(TL.playhead);
+    tlMovePlayhead();
     if (TL.playhead > endAt + 0.2) { tlStopAudio(false); return; }
     TL.raf = requestAnimationFrame(tick);
   };
   TL.raf = requestAnimationFrame(tick);
-  const b = document.getElementById('tl-play'); if (b) b.textContent = '❚❚ Audio';
+  const b = document.getElementById('tl-play'); if (b) b.textContent = '■ Audio only';
 }
 function tlStopAudio(rewind) {
   TL.playing = false; cancelAnimationFrame(TL.raf);
   TL.nodes.forEach(n => { try { n.stop(); } catch (e) {} }); TL.nodes = [];
   if (TL.actx && TL.actx.state === 'suspended') TL.actx.resume();   // a pause must not leave the context frozen
-  const b = document.getElementById('tl-play'); if (b) b.textContent = '▶ Audio';
+  const b = document.getElementById('tl-play'); if (b) b.textContent = '♪ Audio only';
   if (rewind) { TL.playhead = 0; tlRender(); }
 }
+const TL_ICON_ON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" fill-opacity=".15"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+const TL_ICON_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" fill-opacity=".15"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+function tlSyncMuteIcon() {
+  const b = document.getElementById('tl-mute'); if (!b) return;
+  b.innerHTML = TL.muted ? TL_ICON_OFF : TL_ICON_ON;
+  b.classList.toggle('muted', TL.muted);
+  b.title = TL.muted ? 'Preview is muted — click to unmute (exports always include the audio)' : 'Mute the preview (exports always include the audio)';
+}
 function tlToggleMute() {
-  TL.muted = !TL.muted;
-  const b = document.getElementById('tl-mute'); if (b) b.textContent = TL.muted ? '🔇' : '🔊';
-  if (TL.playing) tlPlayAudio();
+  TL.muted = !TL.muted; tlSyncMuteIcon();
+  if (TL.playing) tlPlayAudio(TL.playhead);
+}
+
+// -- transport: the whole run (animation + audio) --
+function tlPlayAll() {
+  if (!state.layers.length) { showToast('Add an image first'); return; }
+  const paused = state._runLog && state._runLog.pausedAt != null;
+  if (state.playing || paused) { togglePlay(); return; }            // pause / resume the run in progress
+  restartAnim();                                                   // nothing running: start from the beginning
+}
+function tlRestartAll() {
+  if (!state.layers.length) { showToast('Add an image first'); return; }
+  if (state._runLog && state._runLog.pausedAt != null) state._runLog.pausedAt = null;
+  restartAnim();
+}
+function tlStopAll() {
+  resetAnim(); TL.playhead = 0; tlRender(); redrawLayersOnCanvas(); drawSelectionHandles();
+}
+function tlSyncTransport() {
+  const b = document.getElementById('tl-run'); if (b) b.textContent = state.playing ? '❚❚ Pause' : (state._runLog && state._runLog.pausedAt != null ? '▶ Resume' : '▶ Play');
 }
 // The animation (re)started: start the narration with it. An MP4 export mixes the audio offline instead.
 function tlRunStarted() {
@@ -10397,6 +10473,7 @@ function animate() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function resetAnim() {
+  state._runId = (state._runId || 0) + 1;     // cancels a group hand-over that is still waiting on its timer
   tlStopAudio(false);
   cancelAnimationFrame(state.animFrame);
   // Clean up any active parallel slots
@@ -10447,8 +10524,9 @@ function startAnim()  {
 
 function togglePlay() {
   if (state.done) { restartAnim(); return; }
-  state.playing=!state.playing; updatePlayIcons();
+  state.playing=!state.playing;
   tlOnPlayToggle(state.playing);
+  updatePlayIcons();
   if (state.playing) {
     (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
     state.slideLastTs = null;
@@ -10459,6 +10537,7 @@ function togglePlay() {
 function updatePlayIcons() {
   document.getElementById('play-icon').style.display  = state.playing?'none':'block';
   document.getElementById('pause-icon').style.display = state.playing?'block':'none';
+  if (typeof tlSyncTransport === 'function') tlSyncTransport();
 }
 
 function finishAnim() {
@@ -10555,7 +10634,7 @@ function finishAnim() {
 
   const nextPos = (state._queuePos ?? 0) + 1;
   if (state._animQueue && nextPos < state._animQueue.length) {
-    setTimeout(() => _runGroupAt(nextPos), 200); // legacy: each "group" is 1 layer
+    { const id = state._runId; setTimeout(() => { if (id === state._runId) _runGroupAt(nextPos); }, 200); } // legacy: each "group" is 1 layer
   } else {
     state.bgCanvas = null;
     document.getElementById('done-badge').classList.add('show');
