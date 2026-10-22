@@ -1992,6 +1992,20 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-inspector input[type=range] { width: 90px; }
 .tl-inspector select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel); }
 #bottom-bar { position: relative; }
+.rp-collapsed-hide { display: none !important; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer; user-select: none; }
+.sec-head:hover { color: var(--text); }
+.sec-toggle { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border-hi); background: var(--panel); color: var(--muted-hi); display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; cursor: pointer; }
+.sec-toggle:hover { color: var(--text); background: #ececec; }
+.sec-toggle svg { transition: transform .15s; }
+.sec-head.collapsed .sec-toggle svg { transform: rotate(180deg); }
+.layer-panel-header.sec-head { cursor: default; }
+.layer-panel-header > .sec-toggle { width: 16px; height: 16px; margin-right: 5px; }
+.layer-panel-header.sec-head .lp-action-btn { padding: 4px 5px; }
+.layer-panel-header.sec-head .layer-panel-actions { gap: 3px; }
+.layer-panel-header.sec-head #layer-count { padding: 1px 5px; }
+.layer-panel-header.sec-head { justify-content: flex-start; }
+.layer-panel-header.sec-head .layer-panel-actions { margin-left: auto; }
 .panel-toggle { position: absolute; top: 5px; right: 10px; z-index: 5; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-hi); border-radius: 50%; background: var(--panel); color: var(--muted-hi); cursor: pointer; padding: 0; }
 .panel-toggle:hover { color: var(--text); background: #ececec; }
 .panel-toggle svg { transition: transform .15s; }
@@ -4319,6 +4333,7 @@ input[type="number"]:focus { border-color: var(--accent); }
 
     <!-- IMAGE PANEL -->
     <div id="image-panel">
+      <div id="rp-input-body">
       <div id="drop-zone" onclick="document.getElementById('file-input').click()">
         <div class="drop-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -4335,6 +4350,7 @@ input[type="number"]:focus { border-color: var(--accent); }
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
         Import from R2
       </button>
+      </div>
 
       <!-- Background section -->
       <div style="margin-top:14px">
@@ -6841,6 +6857,7 @@ function removeLayer(id) {
 }
 
 function selectLayer(id) {
+  rpExpand('layers');
   if (state.selectedLayerId !== id) _collapsedLayers.delete(id); // newly selected layers open expanded
   state.selectedLayerId = id;
   renderLayerList();
@@ -7572,6 +7589,66 @@ try {
   }
 } catch (e) {}
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Foldable sections of the right panel (and the settings inside each layer)
+// ═══════════════════════════════════════════════════════════════════════════
+const RP = { collapsed: {} };
+try { RP.collapsed = JSON.parse(localStorage.getItem('rpCollapsed') || '{}') || {}; } catch (e) {}
+const RP_CHEVRON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+function rpSave() { try { localStorage.setItem('rpCollapsed', JSON.stringify(RP.collapsed)); } catch (e) {} }
+// head: the section's title element; bodies(): what it folds away. The state is remembered by key.
+function rpMake(key, head, bodies) {
+  if (!head) return;
+  head.classList.add('sec-head'); head.dataset.sec = key;
+  let btn = head.querySelector(':scope > .sec-toggle, :scope .sec-toggle');
+  if (!btn) {
+    btn = document.createElement('button'); btn.type = 'button'; btn.className = 'sec-toggle'; btn.innerHTML = RP_CHEVRON;
+    // the Layers header is already full (title, Crop, Slice, Group, count): its arrow goes in front of the title
+    if (head.classList.contains('layer-panel-header')) head.insertBefore(btn, head.firstChild); else head.appendChild(btn);
+  }
+  btn.title = 'Minimize / expand'; btn.setAttribute('aria-label', 'Minimize or expand this section');
+  const apply = () => {
+    const c = !!RP.collapsed[key];
+    head.classList.toggle('collapsed', c); btn.setAttribute('aria-expanded', String(!c));
+    bodies().forEach(el => el && el.classList.toggle('rp-collapsed-hide', c));
+  };
+  const flip = () => { RP.collapsed[key] = !RP.collapsed[key]; rpSave(); apply(); };
+  btn.addEventListener('click', e => { e.stopPropagation(); flip(); });
+  head.addEventListener('click', e => { if (e.target.closest('button, input, select, a, textarea')) return; flip(); });
+  head._rpApply = apply; apply();
+}
+function rpExpand(key) {
+  if (!RP.collapsed[key]) return;
+  RP.collapsed[key] = false; rpSave();
+  const h = document.querySelector(`[data-sec="${key}"]`); if (h && h._rpApply) h._rpApply();
+}
+// Settings inside a layer: every .section-label folds the controls that follow it, up to the next label.
+function rpApplyLayerSubs(root) {
+  (root || document).querySelectorAll('.layer-settings').forEach(box => {
+    [...box.children].filter(el => el.classList.contains('section-label')).forEach(label => {
+      const key = 'sub:' + label.textContent.trim().toLowerCase();
+      rpMake(key, label, () => {
+        const out = []; for (let n = label.nextElementSibling; n && !n.classList.contains('section-label'); n = n.nextElementSibling) out.push(n); return out;
+      });
+    });
+  });
+}
+function rpInit() {
+  const panel = document.getElementById('right-panel'); if (!panel) return;
+  const byText = (sel, text) => [...panel.querySelectorAll(sel)].find(e => e.textContent.trim().toLowerCase().startsWith(text));
+  const card = panel.querySelector('.input-card');
+  rpMake('input', card.querySelector(':scope > .section-label'),
+    () => [card.querySelector(':scope > .tab-group'), document.getElementById('rp-input-body'), document.getElementById('text-panel')]);
+  rpMake('canvasbg', byText('.section-label', 'canvas background'),
+    () => [panel.querySelector('#image-panel .bg-row'), panel.querySelector('#image-panel .bg-color-row')]);
+  rpMake('grid', byText('.bg-section-label', 'grid background'), () => [document.getElementById('bg-grid-box')]);
+  rpMake('presets', byText('.bg-section-label', 'presets'), () => [document.getElementById('bg-presets')]);
+  rpMake('layers', panel.querySelector('.layer-panel-header'),
+    () => [document.getElementById('layer-list-empty'), document.getElementById('layer-list')]);
+  const lh = panel.querySelector('.layer-panel-header'); if (lh) { lh.classList.add('sec-head'); }
+}
+rpInit();
+
 function toggleRightPanel(force) {
   const collapsed = force !== undefined ? force : !document.body.classList.contains('rightpanel-collapsed');
   document.body.classList.toggle('rightpanel-collapsed', collapsed);
@@ -8144,6 +8221,7 @@ function renderLayerList() {
 
   setupLayerDrag();
   refreshLayerSliderVisuals(list);
+  rpApplyLayerSubs(list);
 }
 
 function _buildLayerItem(layer) {
