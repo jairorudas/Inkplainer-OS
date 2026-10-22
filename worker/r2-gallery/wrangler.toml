@@ -1,0 +1,20 @@
+name = "inkplainer-r2-gallery"
+main = "index.js"
+compatibility_date = "2024-09-01"
+
+# Only the production workers.dev URL; no extra per-version preview URLs.
+workers_dev = true
+preview_urls = false
+
+# Read-only access to the bucket (the code only ever calls list/get).
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "como-funciona-assets"
+
+[vars]
+# Only this folder can be listed or read.
+PREFIX = "production/"
+# Comma-separated origins allowed by CORS.
+ALLOWED_ORIGINS = "http://localhost:8123,https://inkdesign.netlify.app"
+
+# The secret is NOT stored here. Set it with:  npx wrangler secret put API_TOKEN

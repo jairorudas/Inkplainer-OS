@@ -32,6 +32,8 @@ None. Inkplainer has no user accounts, no login system, and no analytics. No coo
 
 Your browser's `localStorage` stores one small piece of information: whether you have completed the onboarding tour. This data lives only on your device and is never sent anywhere.
 
+**Optional: Import from Cloudflare R2.** If you choose to use *Import from R2*, the app sends requests only to the Worker URL you enter, with the access token you provide, and downloads the images you pick. Nothing is sent anywhere else, and nothing is uploaded to R2. The token is kept in memory unless you tick *Remember on this device*; then the Worker URL and token are stored in this browser's `localStorage` until you click *Forget saved* or clear your site data.
+
 ---
 
 ## 3. Google Fonts
