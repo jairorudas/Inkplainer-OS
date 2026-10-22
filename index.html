@@ -3533,6 +3533,7 @@ input[type="number"]:focus { border-color: var(--accent); }
             <div class="anim-opt" data-slide-hand="custom4" onclick="setSlideHandStyle(this)">Pen</div>
             <div class="anim-opt" data-slide-hand="custom5" onclick="setSlideHandStyle(this)">Cartoon</div>
             <div class="anim-opt" data-slide-hand="custom6" onclick="setSlideHandStyle(this)">Pixel Art</div>
+            <div class="anim-opt" data-slide-hand="custom7" onclick="setSlideHandStyle(this)">Mickey</div>
           </div>
           <div style="font-size:9px;color:var(--muted);line-height:1.4;margin:6px 0">Its own hand for Slide In; the Hand Style in the bottom bar still drives the drawing styles.</div>
           <div class="section-sublabel">Opacity transition</div>
@@ -3900,6 +3901,7 @@ input[type="number"]:focus { border-color: var(--accent); }
     <div class="hand-opt" data-hand="custom4"></div>
     <div class="hand-opt" data-hand="custom5"></div>
     <div class="hand-opt" data-hand="custom6"></div>
+    <div class="hand-opt" data-hand="custom7"></div>
     <div class="ratio-btn active" data-ratio="16:9"  onclick="selectRatio(this)"></div>
     <div class="ratio-btn"        data-ratio="9:16"  onclick="selectRatio(this)"></div>
     <div class="ratio-btn"        data-ratio="1:1"   onclick="selectRatio(this)"></div>
@@ -4080,6 +4082,7 @@ input[type="number"]:focus { border-color: var(--accent); }
         <div class="bb-hand-pill"          data-hand="custom4" onclick="bbSelectHand(this)">Pen</div>
         <div class="bb-hand-pill"          data-hand="custom5" onclick="bbSelectHand(this)">Cartoon</div>
         <div class="bb-hand-pill"          data-hand="custom6" onclick="bbSelectHand(this)">Pixel Art</div>
+        <div class="bb-hand-pill"          data-hand="custom7" onclick="bbSelectHand(this)">Mickey</div>
       </div>
     </div>
 
@@ -9875,6 +9878,18 @@ const CUSTOM_HANDS = {
       '720v': { path: 'images/hand6vertical-720p.png', width: 180, height: 320, tipX: 19, tipY: 94 },
       '1080v': { path: 'images/hand6vertical-1080p.png', width: 270, height: 480, tipX: 29, tipY: 141 },
       '1440v': { path: 'images/hand6vertical-1440p.png', width: 360, height: 640, tipX: 34, tipY: 176 },
+    }
+  },
+  // Single 2x asset (180x338, fingertip at the top centre) scaled per resolution; not rotated for 9:16.
+  'custom7': {
+    name: 'Mickey',
+    images: {
+      720:     { path: 'images/mickey2x.png', width: 180, height: 338, tipX: 77,  tipY: 0 },
+      1080:    { path: 'images/mickey2x.png', width: 270, height: 507, tipX: 116, tipY: 0 },
+      1440:    { path: 'images/mickey2x.png', width: 360, height: 676, tipX: 154, tipY: 0 },
+      '720v':  { path: 'images/mickey2x.png', width: 180, height: 338, tipX: 77,  tipY: 0 },
+      '1080v': { path: 'images/mickey2x.png', width: 270, height: 507, tipX: 116, tipY: 0 },
+      '1440v': { path: 'images/mickey2x.png', width: 360, height: 676, tipX: 154, tipY: 0 },
     }
   }
 };
