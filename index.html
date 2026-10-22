@@ -1613,6 +1613,18 @@ input[type="number"]:focus { border-color: var(--accent); }
 /* ═══════════════════════════════════════════
    BACKGROUND PICKER
 ═══════════════════════════════════════════ */
+.bg-grid-box { border: 1.5px solid var(--border-hi); border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 8px; transition: border-color .15s, background .15s; }
+.bg-grid-box.active { border-color: var(--accent); background: var(--accent-lo); }
+.bg-grid-top { display: flex; align-items: center; gap: 10px; }
+.bg-grid-preview { width: 54px; height: 40px; border-radius: 7px; border: 1.5px solid var(--border-hi); cursor: pointer; flex-shrink: 0; }
+.bg-grid-preview:hover { border-color: var(--accent); }
+.bg-grid-colors { display: flex; gap: 12px; flex: 1; }
+.bg-grid-colors label { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted-hi); cursor: pointer; }
+.bg-grid-colors .bg-color-swatch { width: 26px; height: 26px; }
+.bg-grid-slider { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--muted-hi); }
+.bg-grid-slider span:first-child { width: 52px; flex-shrink: 0; }
+.bg-grid-slider input[type=range] { flex: 1; }
+.bg-grid-hint { font-size: 9px; color: var(--muted); line-height: 1.4; }
 .bg-section-label {
   font-size: 9px;
   font-weight: 600;
@@ -4326,6 +4338,23 @@ input[type="number"]:focus { border-color: var(--accent); }
           </div>
           <span class="bg-color-label">Custom solid color</span>
         </div>
+        <div class="bg-section-label" style="margin-top:12px">Grid background</div>
+        <div class="bg-grid-box" id="bg-grid-box">
+          <div class="bg-grid-top">
+            <div class="bg-grid-preview" id="bg-grid-preview" onclick="onBgGridChange()" title="Use this grid as the canvas background"></div>
+            <div class="bg-grid-colors">
+              <label>Paper
+                <div class="bg-color-swatch" id="bg-grid-base-swatch" style="background:#ffffff"><input type="color" id="bg-grid-base" value="#ffffff" oninput="onBgGridChange()"></div>
+              </label>
+              <label>Lines
+                <div class="bg-color-swatch" id="bg-grid-line-swatch" style="background:#c8d8e8"><input type="color" id="bg-grid-line" value="#c8d8e8" oninput="onBgGridChange()"></div>
+              </label>
+            </div>
+          </div>
+          <div class="bg-grid-slider"><span>Cell size</span><input type="range" id="bg-grid-size" min="10" max="120" value="40" oninput="updateSliderFill(this);onBgGridChange()"><span class="slider-val" id="bg-grid-size-val">40</span></div>
+          <div class="bg-grid-slider"><span>Line width</span><input type="range" id="bg-grid-weight" min="1" max="6" step="0.5" value="1" oninput="updateSliderFill(this);onBgGridChange()"><span class="slider-val" id="bg-grid-weight-val">1</span></div>
+          <div class="bg-grid-hint">Pick the paper and line colors; the canvas switches to a grid right away.</div>
+        </div>
         <div class="bg-section-label" style="margin-top:12px">Presets</div>
         <div class="bg-presets" id="bg-presets">
           <div class="bg-preset" title="Notebook" data-bg-key="notebook"
@@ -4838,33 +4867,9 @@ function loadProject(projectId) {
       initCanvas(state.canvasW, state.canvasH);
       
       // Restore background and update UI
-      if (state.canvasBg && state.canvasBg.type) {
-        const bgType = state.canvasBg.type;
-        const bgVal = state.canvasBg.val;
-        
-        // Update UI to reflect background
-        document.querySelectorAll('.bg-pill, .bg-preset').forEach(el => {
-          el.classList.remove('active');
-        });
-        
-        if (bgType === 'solid') {
-          if (bgVal === '#ffffff' || bgVal === 'white') {
-            const whitePill = document.querySelector('.bg-pill[onclick*="white"]');
-            if (whitePill) whitePill.classList.add('active');
-          } else if (bgVal === 'transparent') {
-            const transPill = document.querySelector('.bg-pill[onclick*="transparent"]');
-            if (transPill) transPill.classList.add('active');
-          }
-          // Apply the background
-          selectBgPreset(null, 'solid', bgVal);
-        } else if (bgType === 'gradient') {
-          const gradPill = document.querySelector(`.bg-preset[onclick*="'${bgVal}'"]`);
-          if (gradPill) {
-            gradPill.classList.add('active');
-            selectBgPreset(gradPill, 'gradient', bgVal);
-          }
-        }
-      }
+      syncBgUI();
+      fitCanvas();
+      redrawWithBg();
       
       // Clear layer list UI
       const layerListEl = document.getElementById('layer-list');
@@ -5453,9 +5458,9 @@ function _applySnapshot(snap, label) {
   initCanvas(state.canvasW, state.canvasH);
 
   // Restore background
-  if (state.canvasBg) {
-    selectBgPreset(null, state.canvasBg.type, state.canvasBg.val);
-  }
+  syncBgUI();
+  fitCanvas();
+  redrawWithBg();
 
   // Sync global UI
   document.querySelectorAll('.anim-opt[data-anim]').forEach(el =>
@@ -6188,6 +6193,22 @@ function initCanvas(w,h) {
   
   redrawLayersOnCanvas();
 }
+// A 1-px grid line shown at a fractional scale lands on a different sub-pixel phase for every line, so some
+// look thick and some faint (the grid looks uneven). When a whole number of screen pixels per grid cell is
+// within 2.5 % of the fit scale (the margin around the canvas absorbs the small growth), use it: every line
+// then looks the same. Only the preview changes; the canvas itself, and every export, keep the exact grid.
+function _snapScaleToGrid(s) {
+  const bg = state.canvasBg;
+  if (!bg || bg.type !== 'grid') return s;
+  const dpr = window.devicePixelRatio || 1, cell = Math.max(4, (bg.size || 40) * (videoSize()[0] / 1280));
+  const target = s * dpr * cell;
+  let best = null;
+  for (const n of [Math.floor(target), Math.ceil(target)]) {
+    if (n < 2 || Math.abs(n / target - 1) > 0.025) continue;
+    if (best === null || Math.abs(n - target) < Math.abs(best - target)) best = n;
+  }
+  return best === null ? s : best / (dpr * cell);
+}
 function fitCanvas() {
   const canvasArea = document.getElementById('canvas-area');
   if (!canvasArea) return;
@@ -6197,7 +6218,7 @@ function fitCanvas() {
   const safeMargin = 24;
   const availableW = Math.max(160, canvasArea.clientWidth - padX - safeMargin);
   const availableH = Math.max(160, canvasArea.clientHeight - padY - safeMargin);
-  const s = Math.min(availableW/state.canvasW, availableH/state.canvasH, 1);
+  const s = _snapScaleToGrid(Math.min(availableW/state.canvasW, availableH/state.canvasH, 1));
   const sw=(state.canvasW*s)+'px', sh=(state.canvasH*s)+'px';
   canvas.style.width=sw; canvas.style.height=sh;
   handCanvas.style.width=sw; handCanvas.style.height=sh;
@@ -6273,6 +6294,8 @@ function fillBg(c) {
     c.save(); BG_GRADIENTS[bg.key](c); c.restore();
   } else if (bg.type === 'custom') {
     c.fillStyle = bg.val; c.fillRect(0,0,state.canvasW,state.canvasH);
+  } else if (bg.type === 'grid') {
+    drawGridBg(c, bg);
   } else {
     c.fillStyle='#fff'; c.fillRect(0,0,state.canvasW,state.canvasH);
   }
@@ -6281,6 +6304,16 @@ function fillBg(c) {
   if (state.bgCanvas) {
     c.drawImage(state.bgCanvas, 0, 0);
   }
+}
+// Squared paper in the user's colors. Cell and line sizes are in 1280-px-wide video units, so the grid
+// looks the same at every resolution and world size.
+function drawGridBg(c, bg) {
+  const W = state.canvasW, H = state.canvasH, k = videoSize()[0] / 1280;
+  const cell = Math.max(4, (bg.size || 40) * k), w = Math.max(1, Math.round((bg.weight || 1) * k));
+  c.fillStyle = bg.val || '#ffffff'; c.fillRect(0, 0, W, H);
+  c.fillStyle = bg.line || '#c8d8e8';
+  for (let x = 0; x <= W; x += cell) c.fillRect(Math.round(x - w / 2), 0, w, H);
+  for (let y = 0; y <= H; y += cell) c.fillRect(0, Math.round(y - w / 2), W, w);
 }
 function fillBgOnCtx(c) { fillBg(c); }
 
@@ -9344,6 +9377,49 @@ function selectAnim(el) {
     : el.textContent.trim();
   scheduleAutoSave();
 }
+// Makes the Canvas Background panel match state.canvasBg (used after load, undo and every change).
+function syncBgUI() {
+  const bg = state.canvasBg || { type: 'solid', val: 'white' };
+  document.querySelectorAll('.bg-pill, .bg-preset').forEach(p => p.classList.remove('active'));
+  const box = document.getElementById('bg-grid-box'); if (box) box.classList.toggle('active', bg.type === 'grid');
+  const swatch = document.getElementById('bg-custom-swatch'), input = document.getElementById('bg-color-input');
+  const setCustom = v => { if (swatch) swatch.style.background = v; if (input && /^#[0-9a-f]{6}$/i.test(v)) input.value = v; };
+  if (bg.type === 'solid') {
+    const v = bg.val === 'white' ? '#ffffff' : bg.val;
+    if (v === '#ffffff') document.querySelector('.bg-pill[onclick*="white"]')?.classList.add('active');
+    else if (v === '#000000') document.querySelector('.bg-pill[onclick*="#000000"]')?.classList.add('active');
+    else if (v === 'transparent') document.querySelector('.bg-pill[onclick*="transparent"]')?.classList.add('active');
+    if (v !== 'transparent') setCustom(v);
+  } else if (bg.type === 'gradient') {
+    document.querySelector(`.bg-preset[data-bg-key="${bg.key || bg.val}"]`)?.classList.add('active');
+  } else if (bg.type === 'custom') {
+    setCustom(bg.val);
+  } else if (bg.type === 'grid') {
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+    set('bg-grid-base', bg.val || '#ffffff'); set('bg-grid-line', bg.line || '#c8d8e8');
+    set('bg-grid-size', bg.size || 40); set('bg-grid-weight', bg.weight || 1);
+    document.querySelectorAll('#bg-grid-size, #bg-grid-weight').forEach(updateSliderFill);
+  }
+  // grid controls: swatches, readouts and the preview tile always show the current grid settings
+  const g = id => document.getElementById(id);
+  if (g('bg-grid-base')) {
+    const base = g('bg-grid-base').value, line = g('bg-grid-line').value, size = +g('bg-grid-size').value, weight = +g('bg-grid-weight').value;
+    g('bg-grid-base-swatch').style.background = base; g('bg-grid-line-swatch').style.background = line;
+    g('bg-grid-size-val').textContent = size; g('bg-grid-weight-val').textContent = weight;
+    const cell = Math.max(6, size * 0.45);   // the preview tile is small, so it shows a scaled-down grid
+    g('bg-grid-preview').style.background =
+      `linear-gradient(${line} ${Math.max(1, weight * 0.6)}px, transparent 0) 0 0/100% ${cell}px, linear-gradient(90deg, ${line} ${Math.max(1, weight * 0.6)}px, transparent 0) 0 0/${cell}px 100%, ${base}`;
+  }
+}
+// Any grid control: switch the canvas to a grid with the chosen colors/sizes.
+let _gridUndoTimer = null;
+function onBgGridChange() {
+  if (!_gridUndoTimer) pushUndoSnapshot();            // one undo step per burst of changes
+  clearTimeout(_gridUndoTimer); _gridUndoTimer = setTimeout(() => { _gridUndoTimer = null; }, 600);
+  const v = id => document.getElementById(id).value;
+  state.canvasBg = { type: 'grid', val: v('bg-grid-base'), line: v('bg-grid-line'), size: +v('bg-grid-size'), weight: +v('bg-grid-weight') };
+  syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
+}
 function selectBgPreset(el, type, val) {
   // Skip snapshot when called internally from _applySnapshot restore
   if (!_undoRestoring) pushUndoSnapshot();
@@ -9360,6 +9436,8 @@ function selectBgPreset(el, type, val) {
     // el is null when called from an undo/restore; keep the restored key then.
     state.canvasBg = { type:'gradient', val, key: el ? el.dataset.bgKey : state.canvasBg?.key };
   }
+  syncBgUI();
+  fitCanvas();
   redrawWithBg();
   scheduleAutoSave();
 }
@@ -9369,6 +9447,8 @@ function onBgColorInput(val) {
   document.querySelectorAll('.bg-pill, .bg-preset').forEach(p=>p.classList.remove('active'));
   document.getElementById('bg-custom-swatch').style.background = val;
   state.canvasBg = { type:'custom', val };
+  syncBgUI();
+  fitCanvas();
   redrawWithBg();
   scheduleAutoSave();
 }
