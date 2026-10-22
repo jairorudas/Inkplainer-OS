@@ -6591,6 +6591,7 @@ function _generateNow() {
   state._dissolveMap   = null;
   state._animProgress  = 0;
   cameraReset();
+  const _ov = document.getElementById('outline-overlay'); if (_ov) _ov.style.display = 'none';
   // Reset the hand-glide smoothing position (see drawHand) so a fresh run
   // never tries to glide the hand in from wherever the last run left it.
   state._handGX = null;
@@ -6734,8 +6735,15 @@ function _runGroupAt(gpos) {
   document.getElementById('play-pause-btn').disabled = false;
   document.getElementById('done-badge').classList.remove('show');
   setProgress(0);
-  // Camera moves to this group's focus first, then the drawing starts.
+  // Camera moves to this group's focus first, then the drawing starts. While it
+  // moves, show only what has been drawn so far (background + finished groups),
+  // not the editor view that still holds every layer.
   const cam = _cameraTargetForGroup(group);
+  if (cam) {
+    _mainCtx.clearRect(0, 0, state.canvasW, state.canvasH);
+    _mainCtx.drawImage(sharedBg, 0, 0);
+    hctx.clearRect(0, 0, state.canvasW, state.canvasH);
+  }
   if (cam) _cameraMoveTo(cam.target, cam.durMs, () => { if (!state.playing && state._groupPos === gpos) startAnim(); });
   else startAnim();
 }
