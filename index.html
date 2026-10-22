@@ -1930,16 +1930,14 @@ input[type="number"]:focus { border-color: var(--accent); }
 
 /* ── Bottom control bar ── */
 #timeline-panel { flex-shrink: 0; background: var(--sidebar); border-top: 1px solid var(--border); display: flex; flex-direction: column; font-size: 11px; color: var(--text); }
-.tl-head { display: flex; align-items: center; gap: 8px; padding: 5px 12px; min-height: 32px; }
+.tl-head { display: flex; align-items: center; gap: 8px; padding: 5px 44px 5px 12px; min-height: 32px; }
 .tl-head .tl-title { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 10px; color: var(--muted-hi); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
-.tl-head .tl-title svg { transition: transform .15s; }
-#timeline-panel.collapsed .tl-title svg { transform: rotate(-90deg); }
 #timeline-panel.collapsed .tl-body, #timeline-panel.collapsed .tl-inspector { display: none; }
 .tl-btn { border: 1px solid var(--border-hi); background: var(--panel); color: var(--text); border-radius: 6px; padding: 3px 9px; font: inherit; font-size: 11px; cursor: pointer; }
 .tl-btn:hover { background: #ececec; }
 .tl-btn:disabled { opacity: .4; cursor: default; }
 #tl-time { font-variant-numeric: tabular-nums; min-width: 56px; color: var(--muted-hi); }
-.tl-zoom { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-left: auto; }
+.tl-zoom { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-left: 4px; }
 .tl-zoom input { width: 90px; }
 .tl-body { display: flex; height: 168px; border-top: 1px solid var(--border); }
 .tl-labels { width: 92px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--sidebar); padding-top: 22px; }
@@ -1975,6 +1973,17 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-inspector { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--border); min-height: 32px; color: var(--muted-hi); }
 .tl-inspector input[type=range] { width: 90px; }
 .tl-inspector select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel); }
+#bottom-bar { position: relative; }
+.panel-toggle { position: absolute; top: 5px; right: 10px; z-index: 5; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-hi); border-radius: 50%; background: var(--panel); color: var(--muted-hi); cursor: pointer; padding: 0; }
+.panel-toggle:hover { color: var(--text); background: #ececec; }
+.panel-toggle svg { transition: transform .15s; }
+#timeline-panel { position: relative; }
+#timeline-panel.collapsed > .panel-toggle svg { transform: rotate(180deg); }
+#bb-collapsed-bar { display: none; align-items: center; gap: 6px; width: 100%; padding: 0 12px; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-hi); cursor: pointer; user-select: none; }
+#bottom-bar.collapsed { min-height: 0; height: 32px; }
+#bottom-bar.collapsed > .bb-section { display: none; }
+#bottom-bar.collapsed #bb-collapsed-bar { display: flex; }
+#bottom-bar.collapsed > .panel-toggle svg { transform: rotate(180deg); }
 #bottom-bar {
   flex-shrink: 0;
   background: var(--sidebar);
@@ -4155,8 +4164,11 @@ input[type="number"]:focus { border-color: var(--accent); }
 
   <!-- ════════ TIMELINE ════════ -->
   <div id="timeline-panel" class="collapsed">
+    <button id="tl-toggle" class="panel-toggle" onclick="tlToggle()" title="Minimize / expand the timeline" aria-label="Toggle timeline">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
     <div class="tl-head">
-      <span class="tl-title" onclick="tlToggle()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>Timeline</span>
+      <span class="tl-title" onclick="tlToggle()">Timeline</span>
       <button class="tl-btn tl-primary" id="tl-run" onclick="tlPlayAll()" title="Play the animation together with its audio (pauses and resumes)">▶ Play</button>
       <button class="tl-btn" onclick="tlRestartAll()" title="Restart the animation and the audio from the beginning">⟲ Restart</button>
       <button class="tl-btn" onclick="tlStopAll()" title="Stop everything and go back to the start">■ Stop</button>
@@ -4179,6 +4191,10 @@ input[type="number"]:focus { border-color: var(--accent); }
 
   <!-- ════════ BOTTOM BAR ════════ -->
   <div id="bottom-bar">
+    <button id="bb-toggle" class="panel-toggle" onclick="toggleBottomBar()" title="Minimize / expand hand, speed and canvas settings" aria-label="Toggle bottom settings">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <div id="bb-collapsed-bar" onclick="toggleBottomBar()">Hand style · Speed · Canvas size</div>
 
     <!-- Hand Style -->
     <div class="bb-section" style="flex:2;min-width:0;">
@@ -7086,6 +7102,20 @@ function toggleSidebar(force) {
   setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 230);
 }
 try { if (localStorage.getItem('sidebarCollapsed') === '1') document.body.classList.add('sidebar-collapsed'); } catch (e) {}
+
+function toggleBottomBar(force) {
+  const bar = document.getElementById('bottom-bar');
+  const collapsed = force !== undefined ? force : !bar.classList.contains('collapsed');
+  bar.classList.toggle('collapsed', collapsed);
+  try { localStorage.setItem('bottomBarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 30);
+}
+try {
+  if (localStorage.getItem('bottomBarCollapsed') === '1') {
+    document.getElementById('bottom-bar').classList.add('collapsed');
+    setTimeout(() => { try { fitCanvas(); } catch (e) {} }, 400);   // re-fit once the layout has settled
+  }
+} catch (e) {}
 
 function toggleRightPanel(force) {
   const collapsed = force !== undefined ? force : !document.body.classList.contains('rightpanel-collapsed');
