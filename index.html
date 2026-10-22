@@ -2706,6 +2706,16 @@ input[type="number"]:focus { border-color: var(--accent); }
 }
 
 /* CROP & SLICER TOOLBAR */
+.view-zoom-bar {
+  position: absolute; top: 12px; right: 14px; z-index: 200;
+  display: flex; align-items: center; gap: 2px;
+  background: rgba(255,255,255,0.96); border: 1px solid var(--border-hi);
+  border-radius: 100px; padding: 3px 6px; font-size: 11px; color: var(--text);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+}
+.view-zoom-bar button { border: 0; background: none; cursor: pointer; font: inherit; padding: 2px 7px; border-radius: 100px; color: inherit; }
+.view-zoom-bar button:hover { background: rgba(0,0,0,0.07); }
+.view-zoom-bar span { min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted-hi); }
 #tool-toolbar {
   position: absolute;
   top: 12px;
@@ -3540,6 +3550,15 @@ input[type="number"]:focus { border-color: var(--accent); }
           <div class="anim-opt" data-camera-mode="layer" onclick="setCameraMode(this)">This layer</div>
           <div class="anim-opt" data-camera-mode="group" onclick="setCameraMode(this)">Layer group</div>
           <div class="anim-opt" data-camera-mode="full" onclick="setCameraMode(this)">Full view</div>
+          <div class="anim-opt" data-camera-mode="frame" onclick="setCameraMode(this)">Custom frame</div>
+        </div>
+        <div id="camera-frame-tools" style="display:none">
+          <div style="font-size:9px;color:var(--muted);margin:6px 0;line-height:1.4">Drag the orange frame on the canvas (tab or border to move, corners to resize). Scroll to zoom; Alt+drag, middle-drag or dragging the background pans.</div>
+          <div class="anim-grid" style="grid-template-columns:repeat(3,1fr)">
+            <div class="anim-opt" onclick="fitCameraFrameToLayer()">Fit layer</div>
+            <div class="anim-opt" onclick="useViewAsCameraFrame()">Use view</div>
+            <div class="anim-opt" onclick="previewCameraFrame()">Preview</div>
+          </div>
         </div>
         <div class="section-sublabel">Move duration</div>
         <div class="slider-row">
@@ -3966,6 +3985,13 @@ input[type="number"]:focus { border-color: var(--accent); }
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
         Slicer
       </button>
+    </div>
+
+    <div class="view-zoom-bar" id="view-zoom-bar">
+      <button onclick="viewZoomAt(1/1.25)" title="Zoom out">−</button>
+      <span id="view-zoom-readout">100%</span>
+      <button onclick="viewZoomAt(1.25)" title="Zoom in">+</button>
+      <button onclick="viewFit()" title="Fit the whole world">Fit</button>
     </div>
 
     <div id="canvas-wrapper" class="mode-select">
@@ -4497,6 +4523,7 @@ function saveProject(projectId = currentProjectId) {
           slideTransition: layer.slideTransition,
           cameraMode: layer.cameraMode,
           cameraDurationMs: layer.cameraDurationMs,
+          camFrame: layer.camFrame || null,
           // Text layer properties
           kind: layer.kind,
           textProps: layer.textProps,
@@ -4684,6 +4711,7 @@ function loadProject(projectId) {
                 slideTransition: layerData.slideTransition || 'linear',
                 cameraMode: layerData.cameraMode || 'none',
                 cameraDurationMs: layerData.cameraDurationMs ?? 1200,
+                camFrame: layerData.camFrame || null,
                 // Text layer properties
                 kind: layerData.kind || null,
                 textProps: layerData.textProps || null,
@@ -5140,6 +5168,7 @@ function _serializeState() {
       slideTransition: layer.slideTransition,
       cameraMode: layer.cameraMode,
       cameraDurationMs: layer.cameraDurationMs,
+      camFrame: layer.camFrame ? { ...layer.camFrame } : null,
     })),
   };
 }
@@ -5290,6 +5319,7 @@ function _applySnapshot(snap, label) {
           slideTransition: ld.slideTransition || 'linear',
           cameraMode: ld.cameraMode || 'none',
           cameraDurationMs: ld.cameraDurationMs ?? 1200,
+          camFrame: ld.camFrame ? { ...ld.camFrame } : null,
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
@@ -6090,6 +6120,7 @@ function addLayer(img, name) {
     slideTransition: 'linear',
     cameraMode: 'none',
     cameraDurationMs: 1200,
+    camFrame: null,
     hasPngAlpha };
   state.layers.push(layer);
   
@@ -6204,6 +6235,7 @@ function syncSidebarToLayer(id) {
     el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
   document.querySelectorAll('#camera-mode-grid [data-camera-mode]').forEach(el =>
     el.classList.toggle('selected', el.dataset.cameraMode === (layer.cameraMode || 'none')));
+  _syncCameraFrameTools(layer);
   const camDur = document.getElementById('camera-duration-slider');
   if (camDur) {
     camDur.value = (layer.cameraDurationMs ?? 1200) / 1000;
@@ -6281,6 +6313,7 @@ function _cameraView() {
 function _cameraZoomed() { return (_cam.w ?? state.canvasW) < state.canvasW - 0.5; }
 
 function _cameraApply() {
+  _updateZoomReadout();
   const els = [canvas, handCanvas, selectCanvas, document.getElementById('outline-overlay')];
   if (!_cameraZoomed()) {
     els.forEach(el => { if (el) { el.style.transform = ''; el.style.transformOrigin = ''; } });
@@ -6355,6 +6388,8 @@ function _cameraTargetForGroup(group) {
   if (focus.some(l => l.cameraMode === 'full')) {
     return { target: { x: 0, y: 0, w: state.canvasW }, durMs };
   }
+  const fl = focus.find(l => l.cameraMode === 'frame' && l.camFrame);
+  if (fl) return { target: _frameBounds(fl.camFrame), durMs };
   const boxes = [];
   focus.forEach(l => {
     const grp = l.cameraMode === 'group' && l.groupId ? state.groups.find(g => g.id === l.groupId) : null;
@@ -6370,7 +6405,10 @@ function setCameraMode(el) {
   const layer = getSelectedLayer(); if (!layer) return;
   pushUndoSnapshot(); clearActivePreset();
   layer.cameraMode = el.dataset.cameraMode;
+  if (layer.cameraMode === 'frame' && !layer.camFrame) layer.camFrame = _cameraFit({ x: layer.x, y: layer.y, w: layer.w, h: layer.h });
   document.querySelectorAll('#camera-mode-grid [data-camera-mode]').forEach(x => x.classList.toggle('selected', x === el));
+  _syncCameraFrameTools(layer);
+  drawSelectionHandles();
   if (layer.cameraMode === 'group' && !layer.groupId) showToast('Add this layer to a group to zoom on the whole group', el);
   scheduleAutoSave();
 }
@@ -6391,10 +6429,106 @@ function toggleCameraEnd() {
 function syncCameraEndToggle() {
   document.getElementById('camera-end-toggle')?.classList.toggle('on', state.cameraEndFull !== false);
 }
-// Editing happens in full-scene coordinates, so drop any zoom on a canvas click.
+// A click during an automatic camera move takes the camera back to the full view.
 document.getElementById('canvas-wrapper').addEventListener('pointerdown', () => {
-  if (_cameraZoomed() || _cam.busy) cameraReset();
+  if (_cam.busy) cameraReset();
 }, true);
+
+// ── Editing view: zoom with the wheel, pan with middle-drag, Alt+drag, or by
+//    dragging the background. This is the same view the playback camera uses. ──
+
+function _setView(x, y, w) {
+  const minW = videoSize()[0] * 0.2;
+  w = Math.min(Math.max(w, minW), state.canvasW);
+  const h = w * state.canvasH / state.canvasW;
+  _cam.w = w >= state.canvasW - 0.5 ? null : w;
+  _cam.x = Math.min(Math.max(x, 0), state.canvasW - w);
+  _cam.y = Math.min(Math.max(y, 0), state.canvasH - h);
+  if (_cam.w === null) { _cam.x = 0; _cam.y = 0; }
+  _cameraApply();
+  if (!state.playing) drawSelectionHandles();
+}
+function viewZoomAt(factor, clientX, clientY) {
+  const v = _cameraView();
+  let px, py;
+  if (clientX === undefined) { px = v.x + v.w / 2; py = v.y + v.h / 2; }
+  else { ({ x: px, y: py } = toCanvasCoords({ clientX, clientY })); }
+  const nw = Math.min(Math.max(v.w / factor, videoSize()[0] * 0.2), state.canvasW);
+  const fx = (px - v.x) / v.w, fy = (py - v.y) / v.h;
+  const nh = nw * state.canvasH / state.canvasW;
+  _setView(px - fx * nw, py - fy * nh, nw);
+}
+function viewFit() { cancelAnimationFrame(_cam.raf); _cam.busy = false; _setView(0, 0, state.canvasW); }
+function _updateZoomReadout() {
+  const el = document.getElementById('view-zoom-readout');
+  if (el) el.textContent = Math.round(state.canvasW / _cameraView().w * 100) + '%';
+}
+document.getElementById('canvas-wrapper').addEventListener('wheel', e => {
+  if (state.playing || _ts.active) return;
+  e.preventDefault();
+  viewZoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
+}, { passive: false });
+
+function startViewPan(e) {
+  const v0 = _cameraView(), cssW = parseFloat(canvas.style.width) || state.canvasW;
+  const sx = e.clientX, sy = e.clientY;
+  selectCanvas.style.cursor = 'grabbing';
+  const move = ev => {
+    const k = v0.w / cssW;
+    _setView(v0.x - (ev.clientX - sx) * k, v0.y - (ev.clientY - sy) * k, v0.w);
+  };
+  const up = () => {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+    selectCanvas.style.cursor = 'default';
+  };
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+}
+
+// ── Per-layer camera frame (the shot used when cameraMode === 'frame') ──
+function _frameBounds(f) {
+  const w = Math.min(Math.max(f.w, videoSize()[0] * 0.2), state.canvasW);
+  const h = w * state.canvasH / state.canvasW;
+  return { x: Math.min(Math.max(f.x, 0), state.canvasW - w), y: Math.min(Math.max(f.y, 0), state.canvasH - h), w };
+}
+function _dragCameraFrame(layer, px, py, dx, dy) {
+  const o = _interact.orig, aspect = state.canvasW / state.canvasH, minW = videoSize()[0] * 0.2;
+  if (_interact.type === 'frame-move') {
+    layer.camFrame = { x: o.x + dx, y: o.y + dy, w: o.w };
+    return;
+  }
+  const oh = o.w / aspect, c = _interact.corner;
+  const ax = c.includes('w') ? o.x + o.w : o.x;   // anchor = the opposite corner
+  const ay = c.includes('n') ? o.y + oh : o.y;
+  const w = Math.min(Math.max(Math.max(Math.abs(px - ax), Math.abs(py - ay) * aspect), minW), state.canvasW);
+  const h = w / aspect;
+  layer.camFrame = { x: c.includes('w') ? ax - w : ax, y: c.includes('n') ? ay - h : ay, w };
+}
+function fitCameraFrameToLayer() {
+  const l = getSelectedLayer(); if (!l) return;
+  pushUndoSnapshot();
+  l.camFrame = _cameraFit({ x: l.x, y: l.y, w: l.w, h: l.h });
+  drawSelectionHandles(); scheduleAutoSave();
+}
+function useViewAsCameraFrame() {
+  const l = getSelectedLayer(); if (!l) return;
+  pushUndoSnapshot();
+  const v = _cameraView();
+  l.camFrame = { x: v.x, y: v.y, w: v.w };
+  drawSelectionHandles(); scheduleAutoSave();
+}
+function previewCameraFrame() {
+  const l = getSelectedLayer(); if (!l || !l.camFrame) return;
+  const from = { ..._cameraView() }, f = _frameBounds(l.camFrame);
+  _cameraMoveTo(f, l.cameraDurationMs ?? 1200, () => setTimeout(() => {
+    _cameraMoveTo({ x: from.x, y: from.y, w: from.w }, l.cameraDurationMs ?? 1200, () => { if (!state.playing) drawSelectionHandles(); });
+  }, 900));
+}
+function _syncCameraFrameTools(layer) {
+  const el = document.getElementById('camera-frame-tools');
+  if (el) el.style.display = layer && layer.cameraMode === 'frame' ? 'block' : 'none';
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ANIMATION GENERATION & ORCHESTRATION
@@ -7110,33 +7244,78 @@ function redrawLayersOnCanvas() {
 
 // ── Selection handles on selectCanvas ──
 const HANDLE_R = 6;
+// World units per on-screen CSS pixel at the current view, so handles and
+// outlines keep a constant on-screen size whatever the world size or zoom.
+function _worldPerPx() {
+  return _cameraView().w / (parseFloat(canvas.style.width) || state.canvasW);
+}
+function _hr() { return Math.max(HANDLE_R, 4 * _worldPerPx()); }
+
+function _drawCameraFrame(f, active, label) {
+  const p = _worldPerPx(), h = f.w * state.canvasH / state.canvasW;
+  sctx.save();
+  sctx.strokeStyle = active ? '#f59e0b' : 'rgba(245,158,11,0.45)';
+  sctx.lineWidth = (active ? 2.5 : 1.5) * p;
+  sctx.setLineDash(active ? [] : [8 * p, 5 * p]);
+  sctx.strokeRect(f.x, f.y, f.w, h);
+  sctx.setLineDash([]);
+  // label tab (also the grab area for moving the frame)
+  const fs = 11 * p, pad = 5 * p;
+  sctx.font = `600 ${fs}px sans-serif`;
+  const tw = sctx.measureText(label).width + pad * 2;
+  sctx.fillStyle = active ? '#f59e0b' : 'rgba(245,158,11,0.55)';
+  sctx.fillRect(f.x, f.y - fs - pad * 1.6, tw, fs + pad * 1.6);
+  sctx.fillStyle = '#fff';
+  sctx.textBaseline = 'middle';
+  sctx.fillText(label, f.x + pad, f.y - (fs + pad * 1.6) / 2);
+  if (active) {
+    [[f.x, f.y], [f.x + f.w, f.y], [f.x + f.w, f.y + h], [f.x, f.y + h]].forEach(([cx2, cy2]) => {
+      sctx.fillStyle = '#f59e0b';
+      sctx.fillRect(cx2 - _hr(), cy2 - _hr(), _hr() * 2, _hr() * 2);
+      sctx.strokeStyle = '#fff'; sctx.lineWidth = 1.5 * p;
+      sctx.strokeRect(cx2 - _hr(), cy2 - _hr(), _hr() * 2, _hr() * 2);
+    });
+  }
+  sctx.restore();
+}
+
 function drawSelectionHandles() {
   sctx.clearRect(0,0,state.canvasW,state.canvasH);
   const layer = getSelectedLayer();
-  if (!layer || state.playing) return;
+  if (state.playing) return;
+  // Camera frames of the other layers (faint) so the shot sequence is visible
+  getAnimOrder().forEach((l, i) => {
+    if (l !== layer && l.cameraMode === 'frame' && l.camFrame) _drawCameraFrame(l.camFrame, false, `${i + 1} ${l.name}`);
+  });
+  if (!layer) return;
+  const p = _worldPerPx();
   const {x,y,w,h} = layer;
   sctx.save();
   // Selection rect
   sctx.strokeStyle='#6c63ff';
-  sctx.lineWidth=2;
-  sctx.setLineDash([5,3]);
+  sctx.lineWidth=2 * Math.max(1, p / 1.5);
+  sctx.setLineDash([5 * Math.max(1, p / 1.5), 3 * Math.max(1, p / 1.5)]);
   sctx.strokeRect(x,y,w,h);
   sctx.setLineDash([]);
   // Corner handles
   const corners = [[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
   corners.forEach(([cx2,cy2])=>{
     sctx.fillStyle='#6c63ff';
-    sctx.beginPath(); sctx.arc(cx2,cy2,HANDLE_R,0,Math.PI*2); sctx.fill();
-    sctx.strokeStyle='#fff'; sctx.lineWidth=1.5; sctx.stroke();
+    sctx.beginPath(); sctx.arc(cx2,cy2,_hr(),0,Math.PI*2); sctx.fill();
+    sctx.strokeStyle='#fff'; sctx.lineWidth=1.5 * Math.max(1, p / 1.5); sctx.stroke();
   });
   // Edge midpoint handles
   const mids = [[x+w/2,y],[x+w,y+h/2],[x+w/2,y+h],[x,y+h/2]];
   mids.forEach(([cx2,cy2])=>{
     sctx.fillStyle='#fff';
-    sctx.beginPath(); sctx.arc(cx2,cy2,4,0,Math.PI*2); sctx.fill();
-    sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5; sctx.stroke();
+    sctx.beginPath(); sctx.arc(cx2,cy2,_hr() * 0.66,0,Math.PI*2); sctx.fill();
+    sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * Math.max(1, p / 1.5); sctx.stroke();
   });
   sctx.restore();
+  if (layer.cameraMode === 'frame' && layer.camFrame) {
+    const order = getAnimOrder().indexOf(layer) + 1;
+    _drawCameraFrame(layer.camFrame, true, `${order} Camera`);
+  }
 }
 
 // ── Canvas pointer interaction: move + resize ──
@@ -7165,8 +7344,26 @@ function hitTestHandle(px, py, layer) {
     {type:'w',  cx:x,     cy:y+h/2},
   ];
   for (const h2 of handles) {
-    if (Math.hypot(px-h2.cx, py-h2.cy) <= HANDLE_R*2) return h2.type;
+    if (Math.hypot(px-h2.cx, py-h2.cy) <= _hr()*2) return h2.type;
   }
+  return null;
+}
+// Hit test for the selected layer's camera frame: corners resize, the label tab
+// or the border moves it. Returns {type:'move'|'resize', corner?} or null.
+function hitTestCameraFrame(px, py, layer) {
+  const f = layer && layer.cameraMode === 'frame' ? layer.camFrame : null;
+  if (!f) return null;
+  const h = f.w * state.canvasH / state.canvasW, p = _worldPerPx(), r = _hr() * 1.6;
+  const corners = { nw: [f.x, f.y], ne: [f.x + f.w, f.y], se: [f.x + f.w, f.y + h], sw: [f.x, f.y + h] };
+  for (const [c, [cx2, cy2]] of Object.entries(corners)) {
+    if (Math.abs(px - cx2) <= r && Math.abs(py - cy2) <= r) return { type: 'resize', corner: c };
+  }
+  const tab = 11 * p + 8 * p;
+  if (px >= f.x && px <= f.x + 120 * p && py >= f.y - tab && py <= f.y) return { type: 'move' };
+  const t = 5 * p;
+  const inside = px >= f.x - t && px <= f.x + f.w + t && py >= f.y - t && py <= f.y + h + t;
+  const deep = px > f.x + t && px < f.x + f.w - t && py > f.y + t && py < f.y + h - t;
+  if (inside && !deep) return { type: 'move' };
   return null;
 }
 function hitTestLayer(px, py) {
@@ -7183,6 +7380,7 @@ selectCanvas.style.pointerEvents = 'auto';
 
 selectCanvas.addEventListener('mousedown', e => {
   if (state.playing) return;
+  if (e.button === 1 || e.altKey) { e.preventDefault(); startViewPan(e); return; }
   const {x,y} = toCanvasCoords(e);
 
   // ── Text placement mode: click to open editor ──
@@ -7198,6 +7396,13 @@ selectCanvas.addEventListener('mousedown', e => {
   }
 
   const sel = getSelectedLayer();
+
+  // The camera frame sits on top of the layer, so it gets the first hit
+  const fhit = hitTestCameraFrame(x, y, sel);
+  if (fhit) {
+    _interact = { type: 'frame-' + fhit.type, corner: fhit.corner, startX: x, startY: y, orig: { ...sel.camFrame } };
+    return;
+  }
 
   // Check handle hit first
   if (sel) {
@@ -7215,7 +7420,10 @@ selectCanvas.addEventListener('mousedown', e => {
   // Click to select a different layer
   const hit = hitTestLayer(x,y);
   if (hit) { selectLayer(hit.id); }
-  else { state.selectedLayerId = null; renderLayerList(); drawSelectionHandles(); }
+  else {
+    state.selectedLayerId = null; renderLayerList(); drawSelectionHandles();
+    if (_cameraZoomed()) startViewPan(e); // drag the background to pan when zoomed in
+  }
 });
 
 selectCanvas.addEventListener('mousemove', e => {
@@ -7224,6 +7432,9 @@ selectCanvas.addEventListener('mousemove', e => {
   const sel = getSelectedLayer();
   if (!_interact) {
     // Cursor feedback
+    const fh = hitTestCameraFrame(x, y, sel);
+    if (e.altKey) { selectCanvas.style.cursor = 'grab'; return; }
+    if (fh) { selectCanvas.style.cursor = fh.type === 'move' ? 'move' : (fh.corner === 'nw' || fh.corner === 'se' ? 'nwse-resize' : 'nesw-resize'); return; }
     if (sel) {
       const handle = hitTestHandle(x,y,sel);
       selectCanvas.style.cursor = handle ? 'nwse-resize' : (x>=sel.x&&x<=sel.x+sel.w&&y>=sel.y&&y<=sel.y+sel.h ? 'move' : 'default');
@@ -7232,6 +7443,11 @@ selectCanvas.addEventListener('mousemove', e => {
   }
   if (!sel) return;
   const dx = x - _interact.startX, dy = y - _interact.startY;
+  if (_interact.type === 'frame-move' || _interact.type === 'frame-resize') {
+    _dragCameraFrame(sel, x, y, dx, dy);
+    drawSelectionHandles();
+    return;
+  }
   if (_interact.type === 'move') {
     sel.x = _interact.orig.x + dx;
     sel.y = _interact.orig.y + dy;
@@ -7279,6 +7495,11 @@ document.addEventListener('mouseup', () => {
   _interact = null;
   if (sel) {
     // Only push snapshot if position/size actually changed
+    if (wasInteract === 'frame-move' || wasInteract === 'frame-resize') {
+      const f = sel.camFrame;
+      if (f && (f.x !== orig.x || f.y !== orig.y || f.w !== orig.w)) { pushUndoSnapshot(); scheduleAutoSave(); }
+      return;
+    }
     const changed = wasInteract === 'resize'
       ? (sel.x !== orig.x || sel.y !== orig.y || sel.w !== orig.w || sel.h !== orig.h)
       : (sel.x !== orig.x || sel.y !== orig.y);
@@ -8896,6 +9117,7 @@ function _commitTextLayer(text) {
       slideDirection: _oldLayer ? (_oldLayer.slideDirection || 'left') : 'left',
       slideDurationMs: _oldLayer ? (_oldLayer.slideDurationMs ?? 1200) : 1200,
       slideTransition: _oldLayer ? (_oldLayer.slideTransition || 'linear') : 'linear',
+      camFrame: _oldLayer && _oldLayer.camFrame ? { ..._oldLayer.camFrame } : null,
       cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
       cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
       hasPngAlpha: true,
@@ -10784,6 +11006,7 @@ function applySlices() {
     slideDirection:     layer.slideDirection      || 'left',
     slideDurationMs:    layer.slideDurationMs     ?? 1200,
     slideTransition:    layer.slideTransition     || 'linear',
+    camFrame:           layer.camFrame ? { ...layer.camFrame } : null,
     cameraMode:         layer.cameraMode          || 'none',
     cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
   };
