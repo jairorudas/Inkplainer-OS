@@ -549,6 +549,20 @@ body.sidebar-collapsed #sidebar-toggle { left: 8px; }
 body.sidebar-collapsed #sidebar-toggle svg { transform: rotate(180deg); }
 #sidebar { transition: width 0.2s ease, min-width 0.2s ease; }
 body.sidebar-collapsed #sidebar { width: 0; min-width: 0; border-right-width: 0; }
+#right-panel-toggle {
+  position: absolute; top: 10px; right: 284px; z-index: 300;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: #fff; border: 1px solid var(--border-hi); color: var(--muted-hi);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12); cursor: pointer; padding: 0;
+  transition: right 0.2s ease, color 0.12s;
+}
+#right-panel-toggle:hover { color: var(--text); }
+#right-panel-toggle svg { transition: transform 0.2s; }
+body.rightpanel-collapsed #right-panel-toggle { right: 8px; }
+body.rightpanel-collapsed #right-panel-toggle svg { transform: rotate(180deg); }
+#right-panel { transition: width 0.2s ease, min-width 0.2s ease; }
+body.rightpanel-collapsed #right-panel { width: 0; min-width: 0; border-left-width: 0; }
 
 /* ═══════════════════════════════════════════
    SIDEBARS (shared)
@@ -4312,6 +4326,9 @@ input[type="number"]:focus { border-color: var(--accent); }
 
 </div><!-- /right-panel -->
 
+<button id="right-panel-toggle" onclick="toggleRightPanel()" title="Hide / show the layers panel" aria-label="Toggle layers panel">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+</button>
 </div><!-- /app-body -->
 
 <!-- Undo/Redo restoring overlay -->
@@ -6837,6 +6854,14 @@ function toggleSidebar(force) {
   setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 230);
 }
 try { if (localStorage.getItem('sidebarCollapsed') === '1') document.body.classList.add('sidebar-collapsed'); } catch (e) {}
+
+function toggleRightPanel(force) {
+  const collapsed = force !== undefined ? force : !document.body.classList.contains('rightpanel-collapsed');
+  document.body.classList.toggle('rightpanel-collapsed', collapsed);
+  try { localStorage.setItem('rightPanelCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 230);
+}
+try { if (localStorage.getItem('rightPanelCollapsed') === '1') document.body.classList.add('rightpanel-collapsed'); } catch (e) {}
 
 // Layers whose settings the user minimized (UI state only, not saved).
 const _collapsedLayers = new Set();
