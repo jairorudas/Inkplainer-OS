@@ -4,7 +4,9 @@
 //   GET    /list?kind=audio       -> same, for the narration folder (AUDIO_PREFIX, audio files only)    (API_TOKEN)
 //   GET    /file?key=             -> the image (or narration audio) bytes                               (API_TOKEN)
 //   PUT    /file?key=[&overwrite=1] body = image                                                        (WRITE_TOKEN)
-//   DELETE /file?key=             -> moves the image to <PREFIX>.trash/<timestamp>/..., never erases    (WRITE_TOKEN)
+//   DELETE /file?key=             -> moves the image or narration to .trash/<timestamp>/..., never erases (WRITE_TOKEN)
+//   POST   /rename?from=&to=      -> renames a narration audio file inside AUDIO_PREFIX (keeps the extension,
+//                                    refuses to overwrite)                                                 (WRITE_TOKEN)
 //
 // Bindings / variables (see README.md):
 //   ASSETS           R2 bucket binding
@@ -12,7 +14,8 @@
 //   WRITE_TOKEN      secret; upload/delete access. Without it, writes are refused (the Worker stays read-only).
 //   ALLOWED_ORIGINS  comma-separated origins allowed by CORS
 //   PREFIX           folder that may be listed/read/written, e.g. "production/" (default: whole bucket)
-//   AUDIO_PREFIX     optional folder with narration audio, e.g. "narration/". READ-ONLY: never writable or deletable.
+//   AUDIO_PREFIX     optional folder with narration audio, e.g. "narration/". Files can be listed, read, renamed and
+//                    soft-deleted (to <AUDIO_PREFIX>.trash/) with the write token; audio upload is not supported.
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm)$/i;
@@ -29,7 +32,7 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin': corsOk ? origin : 'null',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-      'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
       'Access-Control-Max-Age': '600',
       'Vary': 'Origin',
     };
@@ -43,7 +46,7 @@ export default {
     const prefix = env.PREFIX || '';
     const audioPrefix = env.AUDIO_PREFIX || '';
     const url = new URL(request.url);
-    const isWrite = request.method === 'PUT' || request.method === 'DELETE';
+    const isWrite = request.method === 'PUT' || request.method === 'DELETE' || request.method === 'POST';
     if (!isWrite && request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
 
     if (!(await tokenOk(request, isWrite ? env.WRITE_TOKEN : env.API_TOKEN))) return json({ error: 'unauthorized' }, 401);
@@ -70,12 +73,28 @@ export default {
       });
     }
 
+    if (request.method === 'POST' && url.pathname === '/rename') {
+      const from = url.searchParams.get('from') || '', to = url.searchParams.get('to') || '';
+      const okAudio = k => !!audioPrefix && k.startsWith(audioPrefix) && safeKey(k, audioPrefix) && !k.startsWith(audioPrefix + TRASH) && AUDIO_EXT.test(k);
+      if (!okAudio(from) || !okAudio(to)) return json({ error: 'bad key' }, 400);
+      if (!KEY_CHARS.test(to)) return json({ error: 'bad key characters' }, 400);
+      if (to.endsWith('/') || to.split('/').pop().replace(AUDIO_EXT, '').trim() === '') return json({ error: 'bad key' }, 400);
+      if (from.split('.').pop().toLowerCase() !== to.split('.').pop().toLowerCase()) return json({ error: 'extension must stay the same' }, 400);
+      if (from === to) return json({ error: 'same name' }, 400);
+      if (await env.ASSETS.head(to)) return json({ error: 'already exists' }, 409);
+      const obj = await env.ASSETS.get(from);
+      if (!obj) return json({ error: 'not found' }, 404);
+      await env.ASSETS.put(to, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: obj.customMetadata });
+      await env.ASSETS.delete(from);
+      return json({ key: to, from });
+    }
+
     if (url.pathname === '/file') {
       const key = url.searchParams.get('key') || '';
-      // Narration audio is readable only; every write below is limited to the image prefix.
+      // Narration audio can be read and soft-deleted; uploads (PUT) are limited to the image prefix.
       const isAudio = !!audioPrefix && key.startsWith(audioPrefix) && safeKey(key, audioPrefix) && !key.startsWith(audioPrefix + TRASH) && AUDIO_EXT.test(key);
       const isImage = safeKey(key, prefix) && !key.startsWith(prefix + TRASH) && IMAGE_EXT.test(key);
-      if (request.method === 'GET' ? !(isImage || isAudio) : !isImage) return json({ error: 'bad key' }, 400);
+      if (request.method === 'GET' || request.method === 'DELETE' ? !(isImage || isAudio) : !isImage) return json({ error: 'bad key' }, 400);
 
       if (request.method === 'GET') {
         const obj = await env.ASSETS.get(key);
@@ -109,7 +128,8 @@ export default {
         // Soft delete: copy under <PREFIX>.trash/<timestamp>/ then remove the original.
         const obj = await env.ASSETS.get(key);
         if (!obj) return json({ error: 'not found' }, 404);
-        const trashKey = `${prefix}${TRASH}${Date.now()}/${key.slice(prefix.length)}`;
+        const base = isAudio ? audioPrefix : prefix;
+        const trashKey = `${base}${TRASH}${Date.now()}/${key.slice(base.length)}`;
         await env.ASSETS.put(trashKey, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: { originalKey: key } });
         await env.ASSETS.delete(key);
         return json({ trashed: trashKey });

@@ -1369,6 +1369,12 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-item.audio .r2-tick { top: 50%; transform: translateY(-50%); left: 9px; }
 .r2-item.audio .r2-name { padding: 0; flex: 1; font-size: 12px; }
 .r2-item.audio .r2-meta { font-size: 10px; color: var(--muted); }
+.r2-item.audio .r2-act { border: 1px solid var(--border-hi); background: var(--panel); color: var(--text); border-radius: 5px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+.r2-item.audio .r2-act.danger { color: #dc2626; border-color: #f3b4b4; }
+.r2-item.audio .r2-act:disabled { opacity: .45; cursor: default; }
+.r2-item.audio input.r2-rename { flex: 1; font: inherit; font-size: 12px; padding: 2px 6px; }
+.tl-btn.tl-danger { color: #dc2626; border-color: #f3b4b4; }
+.tl-inspector-name { cursor: text; border-bottom: 1px dashed var(--muted); }
 .r2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .r2-item { position: relative; border: 2px solid transparent; border-radius: 9px; background: var(--panel); cursor: pointer; overflow: hidden; }
 .r2-item.sel { border-color: #6c63ff; }
@@ -7731,6 +7737,20 @@ function tlRenameTrack(id, labelEl, nameEl) {
   input.onblur = () => finish(true);
   input.onmousedown = e => e.stopPropagation();
 }
+function tlRenameClip(id, nameEl) {
+  const c = tlFindClip(id); if (!c) return;
+  const input = document.createElement('input'); input.value = c.name; input.maxLength = 60; input.style.width = '160px';
+  nameEl.replaceWith(input); input.focus(); input.select();
+  let done = false;
+  const finish = ok => {
+    if (done) return; done = true;
+    const v = input.value.trim();
+    if (ok && v && v !== c.name) { pushUndoSnapshot(); c.name = v; tlChanged(); }
+    tlRender();
+  };
+  input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); };
+  input.onblur = () => finish(true);
+}
 function tlClipLen(c) { return Math.max(0.05, (c.trimOut - c.trimIn) / c.rate); }
 
 // -- measuring a play (called from the animation engine hooks) --
@@ -7816,9 +7836,10 @@ function tlRender() {
 function tlClipEl(c) {
   const el = document.createElement('div'); el.className = 'tl-block tl-clip' + (TL.sel === c.id ? ' sel' : ''); el.dataset.clip = c.id;
   el.style.left = c.start * TL.pps + 'px'; el.style.width = Math.max(10, tlClipLen(c) * TL.pps) + 'px';
-  el.title = c.name + ' — drag to move, drag the edges to cut';
+  el.title = c.name + ' — drag to move, drag the edges to cut, double-click to rename';
   const cv = document.createElement('canvas'); el.appendChild(cv);
   const nm = document.createElement('span'); nm.className = 'tl-cname'; nm.textContent = c.name; el.appendChild(nm);
+  el.ondblclick = e => { TL.sel = c.id; tlRender(); tlInspector(); const n = document.querySelector('#tl-inspector .tl-inspector-name'); if (n) tlRenameClip(c.id, n); };
   ['l', 'r'].forEach(side => { const h = document.createElement('div'); h.className = 'tl-handle ' + side; h.onmousedown = e => tlDrag(e, c, side); el.appendChild(h); });
   el.onmousedown = e => { if (e.target === el || e.target === cv || e.target === nm) tlDrag(e, c, 'move'); };
   return el;
@@ -7842,7 +7863,7 @@ function tlInspector() {
   const c = TL.sel ? tlFindClip(TL.sel) : null;
   if (!c) { box.textContent = TL.tracks.some(t => t.clips.length) ? 'Select an audio clip to set its volume and speed.' : 'Add narration with “+ Add audio”. Drag clips to place them, drag their edges to cut where they end.'; return; }
   box.innerHTML = '';
-  const name = document.createElement('b'); name.textContent = c.name; name.style.maxWidth = '180px'; name.style.overflow = 'hidden'; name.style.textOverflow = 'ellipsis'; name.style.whiteSpace = 'nowrap';
+  const name = document.createElement('b'); name.className = 'tl-inspector-name'; name.title = 'Click to rename'; name.onclick = () => tlRenameClip(c.id, name); name.textContent = c.name; name.style.maxWidth = '180px'; name.style.overflow = 'hidden'; name.style.textOverflow = 'ellipsis'; name.style.whiteSpace = 'nowrap';
   const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; updateRangeFill(vol); }; vol.onchange = tlChanged;
   updateRangeFill(vol);
   const vl = document.createElement('span'); vl.textContent = vol.value + '%';
@@ -7850,7 +7871,7 @@ function tlInspector() {
   [0.75, 0.9, 1, 1.1, 1.25].forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r + '×'; if (r === c.rate) o.selected = true; rate.appendChild(o); });
   rate.onchange = () => { pushUndoSnapshot(); c.rate = +rate.value; tlRender(); tlChanged(); };
   const info = document.createElement('span'); info.textContent = `starts ${tlFmt(c.start)} · ends ${tlFmt(c.start + tlClipLen(c))} · ${tlClipLen(c).toFixed(1)} s`; info.style.marginLeft = 'auto';
-  const del = document.createElement('button'); del.className = 'tl-btn'; del.textContent = 'Remove'; del.onclick = () => tlRemoveClip(c.id);
+  const del = document.createElement('button'); del.className = 'tl-btn tl-danger'; del.textContent = 'Delete clip'; del.title = 'Delete this clip (Ctrl/Cmd+Z brings it back)'; del.onclick = () => tlRemoveClip(c.id);
   const lbl = t => { const s = document.createElement('span'); s.textContent = t; return s; };
   box.append(name, lbl('Volume'), vol, vl, lbl('Speed'), rate, info, del);
 }
@@ -7962,8 +7983,11 @@ async function tlAddBlob(blob, name, trackId) {
 function tlRemoveClip(id) {
   pushUndoSnapshot();
   TL.tracks.forEach(t => { t.clips = t.clips.filter(c => c.id !== id); });
-  // The decoded audio is kept so Undo can bring the clip back; it is dropped when the project closes.
+  // The decoded audio stays in memory so Undo can bring the clip back; the saved copy is dropped now
+  // (each clip owns its blob) and tlApplyMeta re-saves it if the clip returns.
+  tlDeleteBlob(id);
   if (TL.sel === id) TL.sel = null; tlRender(); tlChanged();
+  showToast('Clip deleted — press Ctrl/Cmd+Z to undo');
 }
 
 // -- audio engine: preview, run-synced playback, export hooks --
@@ -8120,12 +8144,18 @@ function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in mem
   TL.tracks = JSON.parse(JSON.stringify(meta.tracks)).map(t => ({ ...t, clips: t.clips.filter(c => TL.buffers.has(c.id)) }));
   if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', clips: [] }];
   if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
+  // Clips that come back through undo/redo need their stored audio again; clips that went away lose it.
+  const live = new Set(TL.tracks.flatMap(t => t.clips.map(c => c.id)));
+  TL.blobs.forEach((blob, id) => { if (live.has(id)) tlStoreBlob(id, blob); else tlDeleteBlob(id); });
   tlRender();
 }
 function tlBlobKey(projectId, clipId) { return projectId + ':' + clipId; }
 function tlStoreBlob(clipId, blob) {
   if (!db || !currentProjectId) return;
   try { db.transaction(['audio'], 'readwrite').objectStore('audio').put(blob, tlBlobKey(currentProjectId, clipId)); } catch (e) { console.error('Audio save failed', e); }
+}
+function tlDeleteBlob(clipId) {
+  try { db.transaction(['audio'], 'readwrite').objectStore('audio').delete(tlBlobKey(currentProjectId, clipId)); } catch (e) {}
 }
 function tlDeleteProjectBlobs(projectId) {
   try { db.transaction(['audio'], 'readwrite').objectStore('audio').delete(IDBKeyRange.bound(projectId + ':', projectId + ':￿')); } catch (e) {}
@@ -10482,7 +10512,12 @@ function r2RenderAudio() {
     const tick = document.createElement('div'); tick.className = 'r2-tick'; tick.textContent = '✓';
     const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = '♪  ' + it.key.slice(R2.aprefix.length);
     const meta = document.createElement('div'); meta.className = 'r2-meta'; meta.textContent = (it.size / 1048576).toFixed(1) + ' MB';
-    row.append(tick, name, meta);
+    const ren = document.createElement('button'); ren.className = 'r2-act'; ren.textContent = 'Rename'; ren.disabled = !R2.wtoken;
+    const del = document.createElement('button'); del.className = 'r2-act danger'; del.textContent = 'Delete'; del.disabled = !R2.wtoken;
+    ren.title = del.title = R2.wtoken ? '' : 'Enter a write token and reconnect to rename or delete';
+    ren.onclick = e => { e.stopPropagation(); r2RenameAudio(it, name); };
+    del.onclick = e => { e.stopPropagation(); r2DeleteAudio(it); };
+    row.append(tick, name, meta, ren, del);
     row.onclick = () => { R2.selected.has(it.key) ? R2.selected.delete(it.key) : R2.selected.add(it.key); row.classList.toggle('sel'); _r2UpdateCount(); };
     grid.appendChild(row);
   });
@@ -10606,6 +10641,52 @@ async function r2DeleteSelected() {
   }
   try { await r2Reload(); } catch (e) {}
   _r2Msg(`${ok} moved to the trash${failed ? `, ${failed} failed (${lastErr})` : ''}.`, failed > 0);
+}
+
+function _r2AudioErr(status, what) {
+  if (status === 409) return 'A file with that name already exists.';
+  if (status === 404 || status === 405) return `The Worker does not support ${what} narrations yet. Redeploy it (see worker/r2-gallery/README.md).`;
+  if (status === 400) return 'The Worker refused that name.';
+  return _r2Err(status, true);
+}
+function r2RenameAudio(it, nameEl) {
+  if (!R2.wtoken) return;
+  const dir = it.key.slice(0, it.key.lastIndexOf('/') + 1), file = it.key.slice(dir.length);
+  const dot = file.lastIndexOf('.'), ext = dot > 0 ? file.slice(dot) : '', stem = dot > 0 ? file.slice(0, dot) : file;
+  const input = document.createElement('input'); input.className = 'r2-rename'; input.value = stem; input.maxLength = 80;
+  nameEl.replaceWith(input); input.focus(); input.select();
+  input.onclick = e => e.stopPropagation();
+  let done = false;
+  const finish = async ok => {
+    if (done) return; done = true;
+    const v = _r2CleanName(input.value.trim().replace(/[\\/]/g, '_'));
+    if (!ok || !v || v === stem) { r2Render(); return; }
+    const to = dir + v + ext;
+    _r2Msg('Renaming…');
+    try {
+      const res = await _r2Fetch('/rename?from=' + encodeURIComponent(it.key) + '&to=' + encodeURIComponent(to), { method: 'POST' }, true);
+      if (!res.ok) throw new Error(_r2AudioErr(res.status, 'renaming'));
+      if (R2.selected.delete(it.key)) R2.selected.add(to);
+      it.key = to;
+      _r2Msg(`Renamed to "${v + ext}".`);
+    } catch (err) { _r2Msg(err.message, true); }
+    r2Render();
+  };
+  input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); };
+  input.onblur = () => finish(true);
+}
+async function r2DeleteAudio(it) {
+  if (!R2.wtoken) return;
+  const label = it.key.slice(R2.aprefix.length);
+  if (!confirm(`Delete "${label}" from R2?\n\nIt is moved to ${R2.aprefix}.trash/ in the bucket, so you can still recover it from the Cloudflare dashboard.`)) return;
+  _r2Msg('Deleting…');
+  try {
+    const res = await _r2Fetch('/file?key=' + encodeURIComponent(it.key), { method: 'DELETE' }, true);
+    if (!res.ok) throw new Error(_r2AudioErr(res.status, 'deleting'));
+    R2.aitems = R2.aitems.filter(x => x.key !== it.key); R2.selected.delete(it.key);
+    _r2Msg(`"${label}" moved to the trash.`);
+  } catch (err) { _r2Msg(err.message, true); }
+  r2Render();
 }
 
 async function r2ImportAudio() {
