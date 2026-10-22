@@ -533,7 +533,22 @@ body {
   display: flex;
   overflow: hidden;
   min-height: 0;
+  position: relative;
 }
+#sidebar-toggle {
+  position: absolute; top: 10px; left: 250px; z-index: 300;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: #fff; border: 1px solid var(--border-hi); color: var(--muted-hi);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12); cursor: pointer; padding: 0;
+  transition: left 0.2s ease, color 0.12s;
+}
+#sidebar-toggle:hover { color: var(--text); }
+#sidebar-toggle svg { transition: transform 0.2s; }
+body.sidebar-collapsed #sidebar-toggle { left: 8px; }
+body.sidebar-collapsed #sidebar-toggle svg { transform: rotate(180deg); }
+#sidebar { transition: width 0.2s ease, min-width 0.2s ease; }
+body.sidebar-collapsed #sidebar { width: 0; min-width: 0; border-right-width: 0; }
 
 /* ═══════════════════════════════════════════
    SIDEBARS (shared)
@@ -3391,6 +3406,9 @@ input[type="number"]:focus { border-color: var(--accent); }
 
 <!-- ═══════════════ APP BODY ═══════════════ -->
 <div id="app-body">
+<button id="sidebar-toggle" onclick="toggleSidebar()" title="Hide / show the settings sidebar" aria-label="Toggle sidebar">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+</button>
 <!-- ════════ LEFT SIDEBAR ════════ -->
 <div id="sidebar">
 
@@ -6810,6 +6828,15 @@ function _allLayersDone() {
     requestAnimationFrame(reveal);
   })();
 }
+
+function toggleSidebar(force) {
+  const collapsed = force !== undefined ? force : !document.body.classList.contains('sidebar-collapsed');
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  // Re-fit the canvas once the width transition has finished.
+  setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 230);
+}
+try { if (localStorage.getItem('sidebarCollapsed') === '1') document.body.classList.add('sidebar-collapsed'); } catch (e) {}
 
 // Layers whose settings the user minimized (UI state only, not saved).
 const _collapsedLayers = new Set();
