@@ -8127,6 +8127,10 @@ function _buildLayerItem(layer) {
           oninput="event.stopPropagation();updateRangeFill(this);setLayerResize(${layer.id},+this.value);this.closest('div').querySelector('.resize-val').textContent=this.value+'%'">
         <span class="resize-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${resizePct}%</span>
       </div>
+      <div class="toggle-row" style="margin:-4px 0 10px;" onclick="event.stopPropagation()">
+        <span class="toggle-label" style="font-size:11px">Keep proportions</span>
+        <button class="toggle${layer.lockAspect !== false ? ' on' : ''}" title="On: resizing keeps the image's shape. Off: stretch freely. Hold Shift while dragging to flip it." onclick="event.stopPropagation();toggleLockAspect(${layer.id})"></button>
+      </div>
       <div class="section-label" style="margin-top:2px">Opacity</div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
         <input type="range" min="0" max="100" value="${opPct}"
@@ -8134,10 +8138,6 @@ function _buildLayerItem(layer) {
           onclick="event.stopPropagation()"
           oninput="event.stopPropagation();updateRangeFill(this);setLayerOpacity(${layer.id},+this.value/100);this.closest('div').querySelector('.op-val').textContent=this.value+'%'">
         <span class="op-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${opPct}%</span>
-      </div>
-      <div class="toggle-row" style="margin:-4px 0 10px;" onclick="event.stopPropagation()">
-        <span class="toggle-label" style="font-size:11px">Keep proportions</span>
-        <button class="toggle${layer.lockAspect !== false ? ' on' : ''}" title="On: resizing keeps the image's shape. Off: stretch freely. Hold Shift while dragging to flip it." onclick="event.stopPropagation();toggleLockAspect(${layer.id})"></button>
       </div>
       ${state.groups.length > 0 ? `<div class="section-label" style="margin-top:2px">Group</div>
       <select style="width:100%;margin-bottom:10px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
