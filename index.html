@@ -4567,10 +4567,9 @@ function loadProject(projectId) {
       state.layers = [];
       if (savedState.layers && savedState.layers.length > 0) {
         // CRITICAL: Set the layer ID counter BEFORE loading to avoid conflicts when adding new layers
-        const maxId = Math.max(...savedState.layers.map(l => l.id));
-        if (maxId >= window._layerIdCounter) {
-          window._layerIdCounter = maxId;
-        }
+        const restoredLayerIds = normalizeRestoredLayerIds(savedState.layers);
+        const maxId = Math.max(...restoredLayerIds);
+        if (maxId >= _layerIdCounter) _layerIdCounter = maxId;
         
         let loadedCount = 0;
         const totalLayers = savedState.layers.length;
@@ -4580,7 +4579,7 @@ function loadProject(projectId) {
             const img = new Image();
             img.onload = () => {
               const layer = {
-                id: layerData.id,
+                id: restoredLayerIds[index],
                 name: layerData.name,
                 _savedIndex: layerData.savedIndex ?? index, // for post-load sort
                 img: img,
@@ -5151,8 +5150,9 @@ function _applySnapshot(snap, label) {
   }
 
   // Track max id to avoid counter conflicts
-  const maxId = Math.max(...snap.layers.map(l => l.id));
-  if (maxId >= (window._layerIdCounter || 0)) window._layerIdCounter = maxId;
+  const restoredLayerIds = normalizeRestoredLayerIds(snap.layers);
+  const maxId = Math.max(...restoredLayerIds);
+  if (maxId >= _layerIdCounter) _layerIdCounter = maxId;
 
   let loaded = 0;
   const total = snap.layers.length;
@@ -5170,7 +5170,7 @@ function _applySnapshot(snap, label) {
     loadImg(ld.imageDataURL, (img) => {
       loadImg(ld.origImageDataURL, (origImg) => {
         const layer = {
-          id: ld.id,
+          id: restoredLayerIds[idx],
           name: ld.name,
           img,
           x: ld.x, y: ld.y, w: ld.w, h: ld.h,
@@ -5912,6 +5912,26 @@ window.addEventListener('resize', fitCanvas);
 // ── LAYER MANAGEMENT
 // ─────────────────────────────────────────────
 let _layerIdCounter = 0;
+
+// Older restores updated window._layerIdCounter even though the real counter is
+// a lexical variable. Besides allowing the next upload to reuse an existing ID,
+// that could persist duplicate IDs and make selection/dragging target the wrong
+// layer. Normalize on every restore and advance the actual counter.
+function normalizeRestoredLayerIds(layerData) {
+  const used = new Set();
+  let nextId = Math.max(_layerIdCounter, 0);
+  return layerData.map(layer => {
+    const requested = Number(layer.id);
+    if (Number.isInteger(requested) && requested > 0 && !used.has(requested)) {
+      used.add(requested);
+      nextId = Math.max(nextId, requested);
+      return requested;
+    }
+    do { nextId += 1; } while (used.has(nextId));
+    used.add(nextId);
+    return nextId;
+  });
+}
 
 function addLayer(img, name) {
   pushUndoSnapshot();
