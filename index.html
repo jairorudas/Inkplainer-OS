@@ -4766,6 +4766,7 @@ function saveProject(projectId = currentProjectId) {
           cameraMode: layer.cameraMode,
           cameraDurationMs: layer.cameraDurationMs,
           camFrame: layer.camFrame || null,
+          rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
           // Text layer properties
           kind: layer.kind,
           textProps: layer.textProps,
@@ -4935,6 +4936,7 @@ function loadProject(projectId) {
                 cameraMode: layerData.cameraMode || 'none',
                 cameraDurationMs: layerData.cameraDurationMs ?? 1200,
                 camFrame: layerData.camFrame || null,
+                rotation: layerData.rotation || 0, lockAspect: layerData.lockAspect !== false,
                 // Text layer properties
                 kind: layerData.kind || null,
                 textProps: layerData.textProps || null,
@@ -5396,6 +5398,7 @@ function _serializeState() {
       cameraMode: layer.cameraMode,
       cameraDurationMs: layer.cameraDurationMs,
       camFrame: layer.camFrame ? { ...layer.camFrame } : null,
+      rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
     })),
   };
 }
@@ -5550,6 +5553,7 @@ function _applySnapshot(snap, label) {
           cameraMode: ld.cameraMode || 'none',
           cameraDurationMs: ld.cameraDurationMs ?? 1200,
           camFrame: ld.camFrame ? { ...ld.camFrame } : null,
+          rotation: ld.rotation || 0, lockAspect: ld.lockAspect !== false,
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
@@ -6351,6 +6355,33 @@ function normalizeRestoredLayerIds(layerData) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LAYER GEOMETRY — a layer is the rectangle (x, y, w, h) rotated by `rotation` degrees about its centre
+// ═══════════════════════════════════════════════════════════════════════════
+function layerRad(l) { return (l.rotation || 0) * Math.PI / 180; }
+function layerCenter(l) { return { x: l.x + l.w / 2, y: l.y + l.h / 2 }; }
+function toLocal(px, py, l) {                     // world point -> layer axes (origin at its centre)
+  const c = layerCenter(l), r = -layerRad(l), cs = Math.cos(r), sn = Math.sin(r), dx = px - c.x, dy = py - c.y;
+  return { x: dx * cs - dy * sn, y: dx * sn + dy * cs };
+}
+function toWorld(lx, ly, l) {                     // layer axes -> world point
+  const c = layerCenter(l), r = layerRad(l), cs = Math.cos(r), sn = Math.sin(r);
+  return { x: c.x + lx * cs - ly * sn, y: c.y + lx * sn + ly * cs };
+}
+function layerContains(l, px, py) { const q = toLocal(px, py, l); return Math.abs(q.x) <= l.w / 2 && Math.abs(q.y) <= l.h / 2; }
+function layerBBox(l) {                           // axis-aligned box around the rotated rectangle
+  const r = layerRad(l), c = Math.abs(Math.cos(r)), sn = Math.abs(Math.sin(r)), bw = l.w * c + l.h * sn, bh = l.w * sn + l.h * c, ce = layerCenter(l);
+  return { x: ce.x - bw / 2, y: ce.y - bh / 2, w: bw, h: bh };
+}
+// The one place a layer's picture is painted. x/y/w/h default to the layer's own; the rotation is about the centre.
+function drawLayerImg(c, l, x = l.x, y = l.y, w = l.w, h = l.h) {
+  const rot = l.rotation || 0;
+  if (!rot) { c.drawImage(l.img, x, y, w, h); return; }
+  c.save(); c.translate(x + w / 2, y + h / 2); c.rotate(rot * Math.PI / 180);
+  c.drawImage(l.img, -w / 2, -h / 2, w, h); c.restore();
+}
+function layerLocked(l, shift) { return (l.lockAspect !== false) !== !!shift; }   // Shift flips the toggle while dragging
+
 function addLayer(img, name) {
   pushUndoSnapshot();
   const id = ++_layerIdCounter;
@@ -6395,6 +6426,7 @@ function addLayer(img, name) {
     cameraMode: 'none',
     cameraDurationMs: 1200,
     camFrame: null,
+    rotation: 0, lockAspect: true,
     hasPngAlpha };
   state.layers.push(layer);
   
@@ -6676,7 +6708,7 @@ function _cameraTargetForGroup(group) {
   focus.forEach(l => {
     const grp = l.cameraMode === 'group' && l.groupId ? state.groups.find(g => g.id === l.groupId) : null;
     const members = grp ? grp.layerIds.map(getLayerById).filter(m => m && m.visible !== false) : [l];
-    members.forEach(m => boxes.push(m));
+    members.forEach(m => boxes.push(layerBBox(m)));
   });
   const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
   const x1 = Math.max(...boxes.map(b => b.x + b.w)), y1 = Math.max(...boxes.map(b => b.y + b.h));
@@ -6687,7 +6719,7 @@ function setCameraMode(el) {
   const layer = getSelectedLayer(); if (!layer) return;
   pushUndoSnapshot(); clearActivePreset();
   layer.cameraMode = el.dataset.cameraMode;
-  if (layer.cameraMode === 'frame' && !layer.camFrame) layer.camFrame = _cameraFit({ x: layer.x, y: layer.y, w: layer.w, h: layer.h });
+  if (layer.cameraMode === 'frame' && !layer.camFrame) layer.camFrame = _cameraFit(layerBBox(layer));
   if (layer.cameraMode === 'group' && !layer.groupId) showToast('Add this layer to a group to zoom on the whole group', el);
   renderLayerList();
   drawSelectionHandles();
@@ -6788,7 +6820,7 @@ function _dragCameraFrame(layer, px, py, dx, dy) {
 function fitCameraFrameToLayer() {
   const l = getSelectedLayer(); if (!l) return;
   pushUndoSnapshot();
-  l.camFrame = _cameraFit({ x: l.x, y: l.y, w: l.w, h: l.h });
+  l.camFrame = _cameraFit(layerBBox(l));
   drawSelectionHandles(); scheduleAutoSave();
 }
 function useViewAsCameraFrame() {
@@ -6917,7 +6949,7 @@ function _runGroupAt(gpos) {
       if (l.visible === false) return;
       fctx.save();
       fctx.globalAlpha = l.opacity ?? 1;
-      fctx.drawImage(l.img, l.x, l.y, l.w, l.h);
+      drawLayerImg(fctx, l);
       fctx.restore();
     });
     state._revealFinalCanvas = fc;
@@ -7124,7 +7156,7 @@ function _allLayersDone() {
       state.layers.filter(l => l.visible !== false).forEach(l => {
         _mainCtx.save();
         _mainCtx.globalAlpha *= (l.opacity ?? 1);
-        _mainCtx.drawImage(l.img, l.x, l.y, l.w, l.h);
+        drawLayerImg(_mainCtx, l);
         _mainCtx.restore();
       });
     }
@@ -7779,6 +7811,10 @@ function _buildLayerItem(layer) {
           oninput="event.stopPropagation();updateRangeFill(this);setLayerOpacity(${layer.id},+this.value/100);this.closest('div').querySelector('.op-val').textContent=this.value+'%'">
         <span class="op-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${opPct}%</span>
       </div>
+      <div class="toggle-row" style="margin:-4px 0 10px;" onclick="event.stopPropagation()">
+        <span class="toggle-label" style="font-size:11px">Keep proportions</span>
+        <button class="toggle${layer.lockAspect !== false ? ' on' : ''}" title="On: resizing keeps the image's shape. Off: stretch freely. Hold Shift while dragging to flip it." onclick="event.stopPropagation();toggleLockAspect(${layer.id})"></button>
+      </div>
       ${state.groups.length > 0 ? `<div class="section-label" style="margin-top:2px">Group</div>
       <select style="width:100%;margin-bottom:10px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
         onclick="event.stopPropagation()"
@@ -7793,6 +7829,18 @@ function _buildLayerItem(layer) {
         <div>W <input type="number" style="width:100%;margin-top:3px" value="${Math.round(layer.w)}" onchange="setLayerPos(${layer.id},'w',+this.value)"></div>
         <div>H <input type="number" style="width:100%;margin-top:3px" value="${Math.round(layer.h)}" onchange="setLayerPos(${layer.id},'h',+this.value)"></div>
       </div>
+      <div class="section-label" style="margin-top:12px">Rotate</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" onclick="event.stopPropagation()">
+        <input type="range" min="-180" max="180" step="1" value="${Math.round(layer.rotation || 0)}"
+          data-slider-fill
+          onclick="event.stopPropagation()"
+          oninput="event.stopPropagation();updateRangeFill(this);setLayerRotation(${layer.id},+this.value,this)">
+        <input type="number" min="-180" max="180" step="1" value="${Math.round(layer.rotation || 0)}" title="Degrees"
+          style="width:52px;padding:3px 4px;font-size:11px;text-align:center;background:var(--panel);border:1px solid var(--border);border-radius:5px;color:var(--text)"
+          onchange="setLayerRotation(${layer.id},+this.value,this)">
+        <button class="tl-btn" style="padding:2px 7px" title="Back to 0°" onclick="event.stopPropagation();setLayerRotation(${layer.id},0)">⟲</button>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:6px">Or drag the knob above the image (Shift = 15° steps).</div>
       <div class="section-label" style="margin-top:12px">Camera</div>
       <div class="anim-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" onclick="event.stopPropagation()">
         ${[['none','Keep'],['layer','This layer'],['group','Layer group'],['full','Full view'],['frame','Custom frame']].map(([m,label]) =>
@@ -7840,12 +7888,35 @@ function _buildLayerItem(layer) {
   return item;
 }
 
+function toggleLockAspect(id) {
+  const l = getLayerById(id); if (!l) return;
+  pushUndoSnapshot();
+  l.lockAspect = l.lockAspect === false;        // undefined/true -> false, false -> true
+  renderLayerList(); scheduleAutoSave();
+}
+function setLayerRotation(id, deg, fromEl) {
+  const l = getLayerById(id); if (!l) return;
+  if (!l._rotUndoTimer) pushUndoSnapshot();     // one undo step per drag of the slider
+  clearTimeout(l._rotUndoTimer); l._rotUndoTimer = setTimeout(() => { l._rotUndoTimer = null; }, 500);
+  deg = Math.max(-180, Math.min(180, Number.isFinite(deg) ? deg : 0));
+  l.rotation = deg;
+  const panel = document.getElementById('ls-' + id);
+  if (panel) panel.querySelectorAll('input[oninput*="setLayerRotation"], input[onchange*="setLayerRotation"]').forEach(inp => {
+    if (inp !== fromEl) { inp.value = Math.round(deg); if (inp.type === 'range') updateRangeFill(inp); }
+  });
+  redrawLayersOnCanvas(); drawSelectionHandles(); scheduleAutoSave();
+}
 function setLayerPos(id, prop, val) {
   pushUndoSnapshot();
   const l = getLayerById(id); if(!l) return;
   if (prop === 'w' || prop === 'h') {
+    const c0 = layerCenter(l), ratio = l.w / l.h;
     l[prop] = Math.max(20, val);
+    if (l.lockAspect !== false) { if (prop === 'w') l.h = Math.max(20, l.w / ratio); else l.w = Math.max(20, l.h * ratio); }
+    if (l.rotation) { l.x = c0.x - l.w / 2; l.y = c0.y - l.h / 2; }     // a rotated layer is resized about its centre
     syncLayerResizeFromCurrentSize(l);
+    const panel = document.getElementById('ls-' + id);
+    ['x','y','w','h'].forEach(q => { const inp = panel?.querySelector(`input[onchange*="'${q}'"]`); if (inp) inp.value = Math.round(l[q]); });
   } else {
     l[prop] = val;
   }
@@ -8105,7 +8176,7 @@ function redrawLayersOnCanvas() {
       ctx.imageSmoothingEnabled = false;
     }
     
-    ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+    drawLayerImg(ctx, layer);
     ctx.restore();
   });
   
@@ -8120,6 +8191,7 @@ function _worldPerPx() {
   return _cameraView().w / (parseFloat(canvas.style.width) || state.canvasW);
 }
 function _hr() { return Math.max(HANDLE_R, 4 * _worldPerPx()); }
+function _rotDist() { return Math.max(26, 26 * _worldPerPx()); }   // stem length of the rotate handle
 
 function _drawCameraFrame(f, active, label) {
   const p = _worldPerPx(), h = f.w * state.canvasH / state.canvasW;
@@ -8158,28 +8230,33 @@ function drawSelectionHandles() {
     if (l !== layer && l.cameraMode === 'frame' && l.camFrame) _drawCameraFrame(l.camFrame, false, `${i + 1} ${l.name}`);
   });
   if (!layer) return;
-  const p = _worldPerPx();
-  const {x,y,w,h} = layer;
+  const p = _worldPerPx(), k = Math.max(1, p / 1.5), c = layerCenter(layer), w = layer.w, h = layer.h;
   sctx.save();
+  sctx.translate(c.x, c.y); sctx.rotate(layerRad(layer));          // draw in the layer's own axes
   // Selection rect
   sctx.strokeStyle='#6c63ff';
-  sctx.lineWidth=2 * Math.max(1, p / 1.5);
-  sctx.setLineDash([5 * Math.max(1, p / 1.5), 3 * Math.max(1, p / 1.5)]);
-  sctx.strokeRect(x,y,w,h);
+  sctx.lineWidth=2 * k;
+  sctx.setLineDash([5 * k, 3 * k]);
+  sctx.strokeRect(-w/2, -h/2, w, h);
   sctx.setLineDash([]);
+  // Rotate handle: a knob on a stem above the top edge
+  const stem = _rotDist();
+  sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * k;
+  sctx.beginPath(); sctx.moveTo(0, -h/2); sctx.lineTo(0, -h/2 - stem); sctx.stroke();
+  sctx.fillStyle='#fff';
+  sctx.beginPath(); sctx.arc(0, -h/2 - stem, _hr(), 0, Math.PI*2); sctx.fill(); sctx.stroke();
+  sctx.beginPath(); sctx.arc(0, -h/2 - stem, _hr() * 0.5, Math.PI * 0.15, Math.PI * 1.65); sctx.stroke();   // a little "turn" arc
   // Corner handles
-  const corners = [[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
-  corners.forEach(([cx2,cy2])=>{
+  [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]].forEach(([cx2,cy2])=>{
     sctx.fillStyle='#6c63ff';
     sctx.beginPath(); sctx.arc(cx2,cy2,_hr(),0,Math.PI*2); sctx.fill();
-    sctx.strokeStyle='#fff'; sctx.lineWidth=1.5 * Math.max(1, p / 1.5); sctx.stroke();
+    sctx.strokeStyle='#fff'; sctx.lineWidth=1.5 * k; sctx.stroke();
   });
   // Edge midpoint handles
-  const mids = [[x+w/2,y],[x+w,y+h/2],[x+w/2,y+h],[x,y+h/2]];
-  mids.forEach(([cx2,cy2])=>{
+  [[0,-h/2],[w/2,0],[0,h/2],[-w/2,0]].forEach(([cx2,cy2])=>{
     sctx.fillStyle='#fff';
     sctx.beginPath(); sctx.arc(cx2,cy2,_hr() * 0.66,0,Math.PI*2); sctx.fill();
-    sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * Math.max(1, p / 1.5); sctx.stroke();
+    sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * k; sctx.stroke();
   });
   sctx.restore();
   if (layer.cameraMode === 'frame' && layer.camFrame) {
@@ -8202,19 +8279,21 @@ function toCanvasCoords(e) {
   return { x: (e.clientX - rect.left) * s, y: (e.clientY - rect.top) * s };
 }
 function hitTestHandle(px, py, layer) {
-  const {x,y,w,h} = layer;
+  const w = layer.w, h = layer.h;
   const handles = [
-    {type:'nw', cx:x,   cy:y},
-    {type:'ne', cx:x+w, cy:y},
-    {type:'se', cx:x+w, cy:y+h},
-    {type:'sw', cx:x,   cy:y+h},
-    {type:'n',  cx:x+w/2, cy:y},
-    {type:'e',  cx:x+w,   cy:y+h/2},
-    {type:'s',  cx:x+w/2, cy:y+h},
-    {type:'w',  cx:x,     cy:y+h/2},
+    {type:'rot', lx:0,    ly:-h/2 - _rotDist()},
+    {type:'nw',  lx:-w/2, ly:-h/2},
+    {type:'ne',  lx:w/2,  ly:-h/2},
+    {type:'se',  lx:w/2,  ly:h/2},
+    {type:'sw',  lx:-w/2, ly:h/2},
+    {type:'n',   lx:0,    ly:-h/2},
+    {type:'e',   lx:w/2,  ly:0},
+    {type:'s',   lx:0,    ly:h/2},
+    {type:'w',   lx:-w/2, ly:0},
   ];
   for (const h2 of handles) {
-    if (Math.hypot(px-h2.cx, py-h2.cy) <= _hr()*2) return h2.type;
+    const q = toWorld(h2.lx, h2.ly, layer);
+    if (Math.hypot(px-q.x, py-q.y) <= _hr()*2) return h2.type;
   }
   return null;
 }
@@ -8240,7 +8319,7 @@ function hitTestLayer(px, py) {
   // Check from top (last) to bottom (first)
   for (let i = state.layers.length-1; i >= 0; i--) {
     const l = state.layers[i];
-    if (px >= l.x && px <= l.x+l.w && py >= l.y && py <= l.y+l.h) return l;
+    if (layerContains(l, px, py)) return l;
   }
   return null;
 }
@@ -8277,12 +8356,16 @@ selectCanvas.addEventListener('mousedown', e => {
   // Check handle hit first
   if (sel) {
     const handle = hitTestHandle(x,y,sel);
-    if (handle) {
-      _interact = {type:'resize', handle, startX:x, startY:y,
-        orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}};
+    if (handle === 'rot') {
+      _interact = {type:'rotate', startX:x, startY:y, orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h,rot:sel.rotation||0}};
       return;
     }
-    if (x>=sel.x&&x<=sel.x+sel.w&&y>=sel.y&&y<=sel.y+sel.h) {
+    if (handle) {
+      _interact = {type:'resize', handle, startX:x, startY:y,
+        orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h,rot:sel.rotation||0}};
+      return;
+    }
+    if (layerContains(sel, x, y)) {
       _interact = {type:'move', startX:x, startY:y, orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}};
       return;
     }
@@ -8307,7 +8390,7 @@ selectCanvas.addEventListener('mousemove', e => {
     if (fh) { selectCanvas.style.cursor = fh.type === 'move' ? 'move' : (fh.corner === 'nw' || fh.corner === 'se' ? 'nwse-resize' : 'nesw-resize'); return; }
     if (sel) {
       const handle = hitTestHandle(x,y,sel);
-      selectCanvas.style.cursor = handle ? 'nwse-resize' : (x>=sel.x&&x<=sel.x+sel.w&&y>=sel.y&&y<=sel.y+sel.h ? 'move' : 'default');
+      selectCanvas.style.cursor = handle === 'rot' ? 'grab' : handle ? 'nwse-resize' : (layerContains(sel, x, y) ? 'move' : 'default');
     } else { selectCanvas.style.cursor = 'default'; }
     return;
   }
@@ -8321,21 +8404,29 @@ selectCanvas.addEventListener('mousemove', e => {
   if (_interact.type === 'move') {
     sel.x = _interact.orig.x + dx;
     sel.y = _interact.orig.y + dy;
+  } else if (_interact.type === 'rotate') {
+    const c = { x: _interact.orig.x + _interact.orig.w / 2, y: _interact.orig.y + _interact.orig.h / 2 };
+    let ang = Math.atan2(y - c.y, x - c.x) * 180 / Math.PI + 90;       // the knob sits above the layer: 0 deg = up
+    if (e.shiftKey) ang = Math.round(ang / 15) * 15;                    // Shift: 15-degree steps
+    ang = ((ang + 180) % 360 + 360) % 360 - 180;                        // keep within -180..180
+    sel.rotation = Math.round(ang * 10) / 10;
   } else {
-    // Resize
-    const o = _interact.orig;
-    let nx=o.x, ny=o.y, nw=o.w, nh=o.h;
-    const h2 = _interact.handle;
-    if (h2.includes('e')) nw = Math.max(20, o.w + dx);
-    if (h2.includes('s')) nh = Math.max(20, o.h + dy);
-    if (h2.includes('w')) { nx = o.x+dx; nw = Math.max(20, o.w-dx); }
-    if (h2.includes('n')) { ny = o.y+dy; nh = Math.max(20, o.h-dy); }
-    // Shift = constrain to original aspect ratio
-    if (e.shiftKey) {
-      const ar = o.w / o.h;
-      if (nw / nh > ar) { nh = nw / ar; } else { nw = nh * ar; }
+    // Resize in the layer's own axes, so it works when the layer is rotated. The opposite side/corner stays put.
+    const o = _interact.orig, h2 = _interact.handle, rad = o.rot * Math.PI / 180, cs = Math.cos(-rad), sn = Math.sin(-rad);
+    const dl = { x: dx * cs - dy * sn, y: dx * sn + dy * cs };           // drag, in the layer's axes
+    const sx = h2.includes('e') ? 1 : h2.includes('w') ? -1 : 0, sy = h2.includes('s') ? 1 : h2.includes('n') ? -1 : 0;
+    let nw = o.w, nh = o.h;
+    if (!layerLocked(sel, e.shiftKey)) {                                // free: each side on its own
+      if (sx) nw = Math.max(20, o.w + sx * dl.x);
+      if (sy) nh = Math.max(20, o.h + sy * dl.y);
+    } else {                                                            // keep proportions
+      let f = sx && sy ? Math.max((o.w + sx * dl.x) / o.w, (o.h + sy * dl.y) / o.h) : sx ? (o.w + sx * dl.x) / o.w : (o.h + sy * dl.y) / o.h;
+      f = Math.max(f, 20 / Math.min(o.w, o.h)); nw = o.w * f; nh = o.h * f;
     }
-    sel.x=nx; sel.y=ny; sel.w=nw; sel.h=nh;
+    const cl = { x: sx ? sx * (nw - o.w) / 2 : 0, y: sy ? sy * (nh - o.h) / 2 : 0 };   // centre moves half of what the side moved
+    const cr = Math.cos(rad), sr = Math.sin(rad);
+    const cx = o.x + o.w / 2 + cl.x * cr - cl.y * sr, cy = o.y + o.h / 2 + cl.x * sr + cl.y * cr;
+    sel.w = nw; sel.h = nh; sel.x = cx - nw / 2; sel.y = cy - nh / 2;
   }
   redrawLayersOnCanvas();
   drawSelectionHandles();
@@ -8372,9 +8463,14 @@ document.addEventListener('mouseup', () => {
     }
     const changed = wasInteract === 'resize'
       ? (sel.x !== orig.x || sel.y !== orig.y || sel.w !== orig.w || sel.h !== orig.h)
+      : wasInteract === 'rotate' ? (sel.rotation || 0) !== orig.rot
       : (sel.x !== orig.x || sel.y !== orig.y);
     if (changed) pushUndoSnapshot();
-    if (wasInteract === 'resize') {
+    if (wasInteract === 'rotate') {
+      renderLayerList();
+      drawSelectionHandles();
+      scheduleAutoSave();
+    } else if (wasInteract === 'resize') {
       syncLayerResizeFromCurrentSize(sel);
       renderLayerList();
       drawSelectionHandles();
@@ -9496,7 +9592,7 @@ function redrawWithBg() {
     if (layer.visible === false) return;
     ctx.save();
     ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1;
-    ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+    drawLayerImg(ctx, layer);
     ctx.restore();
   });
   drawSelectionHandles();
@@ -10348,6 +10444,7 @@ function _commitTextLayer(text) {
       slideHand: _oldLayer ? !!_oldLayer.slideHand : false,
       slideHandStyle: _oldLayer ? (_oldLayer.slideHandStyle || 'auto') : 'auto',
       camFrame: _oldLayer && _oldLayer.camFrame ? { ..._oldLayer.camFrame } : null,
+      rotation: _oldLayer ? (_oldLayer.rotation || 0) : 0, lockAspect: _oldLayer ? _oldLayer.lockAspect !== false : true,
       cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
       cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
       hasPngAlpha: true,
@@ -10436,7 +10533,7 @@ function preRender(existingBgCanvas) {
     alreadyDone.forEach(l => {
       if (!l) return;
       bc.save(); bc.globalAlpha = (l.opacity !== undefined ? l.opacity : 1);
-      bc.drawImage(l.img, l.x, l.y, l.w, l.h);
+      drawLayerImg(bc, l);
       bc.restore();
     });
   }
@@ -10448,7 +10545,7 @@ function preRender(existingBgCanvas) {
   const oc = offscreen.getContext('2d', { willReadFrequently: true });
   if (layer) {
     oc.save(); oc.globalAlpha = (layer.opacity !== undefined ? layer.opacity : 1);
-    oc.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+    drawLayerImg(oc, layer);
     oc.restore();
   } else {
     const text  = document.getElementById('text-input').value || 'Hello, World!';
@@ -10709,7 +10806,7 @@ function finishAnim() {
         const l = slot.layer;
         if (l) {
           bc.save(); bc.globalAlpha = l.opacity ?? 1;
-          bc.drawImage(l.img, l.x, l.y, l.w, l.h);
+          drawLayerImg(bc, l);
           bc.restore();
         }
       } else {
@@ -10744,7 +10841,7 @@ function finishAnim() {
     if (_shouldBakeRawImage) {
       if (layer) {
         bc.save(); bc.globalAlpha = (layer.opacity !== undefined ? layer.opacity : 1);
-        bc.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        drawLayerImg(bc, layer);
         bc.restore();
       }
     } else {
@@ -11566,6 +11663,7 @@ const _cropCanvas = document.getElementById('crop-canvas');
 const _cropCtx    = _cropCanvas.getContext('2d');
 
 function activateCropTool() {
+  { const l = getSelectedLayer(); if (l && l.rotation) { showToast('Set the rotation back to 0° before cropping'); return; } }
   const layer = getSelectedLayer();
   if (!layer) { showToast('Select a layer first'); return; }
   if (state.playing) return;
@@ -11858,6 +11956,7 @@ let _slicerRectDrag  = null; // {startX,startY,cur:{x,y,w,h}}
 const SLICE_COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#e91e63'];
 
 function openSlicerModal() {
+  { const l = getSelectedLayer(); if (l && l.rotation) { showToast('Set the rotation back to 0° before slicing'); return; } }
   const layer = getSelectedLayer();
   if (!layer) { showToast('Select a layer first'); return; }
   _slicerLayer  = layer;
@@ -12275,6 +12374,7 @@ function applySlices() {
     slideHand:          !!layer.slideHand,
     slideHandStyle:     layer.slideHandStyle || 'auto',
     camFrame:           layer.camFrame ? { ...layer.camFrame } : null,
+    rotation: 0, lockAspect: layer.lockAspect !== false,
     cameraMode:         layer.cameraMode          || 'none',
     cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
   };
