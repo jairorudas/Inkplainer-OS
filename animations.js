@@ -1792,11 +1792,13 @@ function tickSlideIn() {
   // Enter from just outside the camera's current view (the whole canvas when
   // the camera is not zoomed), so a zoomed-in shot still sees the slide happen.
   const view = typeof _cameraView === 'function' ? _cameraView() : { x: 0, y: 0, w: state.canvasW, h: state.canvasH };
+  // A rotated layer must clear the view by its rotated bounding box (the same as w/h when not rotated).
+  const _bb = typeof layerBBox === 'function' ? layerBBox(layer) : { w: layer.w, h: layer.h };
   let startX = layer.x, startY = layer.y;
-  if (state.slideDirection === 'right') startX = view.x + view.w;
-  else if (state.slideDirection === 'top') startY = view.y - layer.h;
-  else if (state.slideDirection === 'bottom') startY = view.y + view.h;
-  else startX = view.x - layer.w;
+  if (state.slideDirection === 'right') startX = view.x + view.w - (layer.w - _bb.w) / 2;
+  else if (state.slideDirection === 'top') startY = view.y - _bb.h - (layer.h - _bb.h) / 2;
+  else if (state.slideDirection === 'bottom') startY = view.y + view.h - (layer.h - _bb.h) / 2;
+  else startX = view.x - _bb.w - (layer.w - _bb.w) / 2;
   const x = startX + (layer.x - startX) * ease;
   const y = startY + (layer.y - startY) * ease;
   const baseOpacity = layer.opacity ?? 1;
@@ -1806,7 +1808,7 @@ function tickSlideIn() {
   ctx.clearRect(0, 0, state.canvasW, state.canvasH);
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.drawImage(layer.img, x, y, layer.w, layer.h);
+  drawLayerImg(ctx, layer, x, y);
   ctx.restore();
   hctx.clearRect(0, 0, state.canvasW, state.canvasH);
   // Optional hand: grips the leading edge and pulls the image in, then lets go.
@@ -1921,6 +1923,7 @@ function _tickAllSlots() {
     _mainCtx.save();
     state._slotMode = false;
     fillBg(_mainCtx);
+    if (typeof fxDrawLive === 'function') fxDrawLive(_mainCtx);
     // Re-draw above-baked layers so they don't flash invisible during the
     // 200ms gap between groups (same logic as the live-tick composite below).
     if (state._animGroups && state._animGroups.length > 1) {
@@ -1931,7 +1934,7 @@ function _tickAllSlots() {
       const aboveBaked = [];
       for (let g = 0; g < gpos; g++) {
         state._animGroups[g].forEach(layer => {
-          if (layer.visible === false) return;
+          if (layer.visible === false || layer._fxLive || layer._fxGone) return;
           if (state.layers.indexOf(layer) > currentMaxIdx) aboveBaked.push(layer);
         });
       }
@@ -1939,7 +1942,7 @@ function _tickAllSlots() {
       aboveBaked.forEach(layer => {
         _mainCtx.save();
         _mainCtx.globalAlpha = layer.opacity ?? 1;
-        _mainCtx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        drawLayerImg(_mainCtx, layer);
         _mainCtx.restore();
       });
     }
@@ -1962,6 +1965,7 @@ function _tickAllSlots() {
   _mainCtx.save();
   state._slotMode = false;
   fillBg(_mainCtx); // draws bg gradient + bgCanvas (already-completed layers)
+  if (typeof fxDrawLive === 'function') fxDrawLive(_mainCtx);   // layers with an effect are drawn live, not from the baked background
   state._activeSlots.forEach(slot => _mainCtx.drawImage(slot.canvas, 0, 0));
 
   // Z-order fix: already-baked layers that are visually ABOVE the current group
@@ -1976,7 +1980,7 @@ function _tickAllSlots() {
     const aboveBaked = [];
     for (let g = 0; g < gpos; g++) {
       state._animGroups[g].forEach(layer => {
-        if (layer.visible === false) return;
+        if (layer.visible === false || layer._fxLive || layer._fxGone) return;
         if (state.layers.indexOf(layer) > currentMaxIdx) aboveBaked.push(layer);
       });
     }
@@ -1984,7 +1988,7 @@ function _tickAllSlots() {
     aboveBaked.forEach(layer => {
       _mainCtx.save();
       _mainCtx.globalAlpha = layer.opacity ?? 1;
-      _mainCtx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+      drawLayerImg(_mainCtx, layer);
       _mainCtx.restore();
     });
   }
@@ -2132,7 +2136,7 @@ function _runGroupAt(gpos) {
       if (l.visible === false) return;
       fctx.save();
       fctx.globalAlpha = l.opacity ?? 1;
-      fctx.drawImage(l.img, l.x, l.y, l.w, l.h);
+      drawLayerImg(fctx, l);
       fctx.restore();
     });
     state._revealFinalCanvas = fc;
@@ -3464,14 +3468,16 @@ function finishAnim() {
   // ── SLOT PATH (parallel animation) ──────────────────────────────────────────
   const slot = state._currentSlot;
   if (slot) {
-    // Bake this slot's completed result into the shared bgCanvas
-    if (state.bgCanvas) {
-      const bc = state.bgCanvas.getContext('2d');
+    // Bake this slot's completed result into the shared bgCanvas. A layer with an animate.css effect is
+    // baked into its own small canvas instead and kept live (see fxRegister in index.html).
+    const _fxCtx = (typeof fxWantsLive === 'function' && fxWantsLive(slot.layer)) ? fxBeginSnapshot(slot.layer) : null;
+    if (state.bgCanvas || _fxCtx) {
+      const bc = _fxCtx || state.bgCanvas.getContext('2d');
       if (_shouldBakeRawImage) {
         const l = slot.layer;
         if (l) {
           bc.save(); bc.globalAlpha = l.opacity ?? 1;
-          bc.drawImage(l.img, l.x, l.y, l.w, l.h);
+          drawLayerImg(bc, l);
           bc.restore();
         }
       } else {
@@ -3488,6 +3494,7 @@ function finishAnim() {
         }
       }
     }
+    if (_fxCtx) fxRegister(slot.layer);
     // Mark slot done; _tickAllSlots will detect when all slots finish
     slot.done = true;
     hctx.clearRect(0, 0, state.canvasW, state.canvasH);
@@ -3506,7 +3513,7 @@ function finishAnim() {
     if (_shouldBakeRawImage) {
       if (layer) {
         bc.save(); bc.globalAlpha = (layer.opacity !== undefined ? layer.opacity : 1);
-        bc.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        drawLayerImg(bc, layer);
         bc.restore();
       }
     } else {

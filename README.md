@@ -17,6 +17,9 @@ Turn images and text into hand-drawn explainer videos — no sign-up, no waterma
 - **Multiple animation styles** — Slide In, Chunk Jump, Scanner, Contour, Outline Chunks, plus 7 subject-aware Specialized styles (Human, Animal, Portrait, Vehicle, Building, Landscape, Spiral)
 - **Advanced drawing control** — 5 stroke styles, 4 outline detection algorithms, 3 coloring styles, and 6 image reveal animations
 - **Layer system** — stack images and text layers, set animation order, animate them in sequence or in parallel
+- **Rotate and resize freely** — rotate any image (knob on the canvas or a degrees field, Shift for 15° steps); a *Keep proportions* switch per image decides whether resizing keeps its shape or stretches it
+- **animate.css effects** — give an image one of the 97 animate.css effects (tada, pulse, bounce, fade/zoom/slide/flip in and out…); it plays after the image appears, once, a number of times, or until the video ends; the *out* effects remove the image
+- **Leaving the scene** — give an image (or a whole group) an animate.css exit such as fadeOut: when the group is done it stays for a time you choose, then leaves, and the next group waits until it has gone, so a small canvas (horizontal or vertical) is clear for it
 - **Smooth, adjustable hand movement** — the hand glides continuously across the canvas by default, with a switch to revert to the original snap-to-position movement if you prefer it
 - **Slicer tool** — cut any image into regions using Grid, Rectangle, or Freehand mode; each region becomes its own independently animated layer
 - **Text layers** — place styled text directly on the canvas with font picker, size, bold/italic, alignment, line-height, letter spacing, and color controls
@@ -341,6 +344,8 @@ This is the tool used to set up the default hands included in the project. If yo
 inkplainer/
 ├── index.html                     # Main app UI, layout, and interaction logic
 ├── animations.js                  # All animation algorithms and rendering engine
+├── animate-css-data.js            # animate.css keyframes as data (generated, see tools/)
+├── tools/build-animate-data.py    # Regenerates animate-css-data.js from animate.css
 ├── LICENSE                        # Apache 2.0
 ├── README.md                      # This file
 ├── PRIVACY.md                     # Privacy policy
@@ -375,7 +380,9 @@ See [PRIVACY.md](PRIVACY.md) for the full policy.
 
 ---
 
-## Third-party credits
+## Third-party
+
+- **animate.css** 4.1.1 (MIT, © 2020 Daniel Eden, https://animate.style/): its keyframes are converted to data in `animate-css-data.js` by `tools/build-animate-data.py` and played on the canvas.
 
 **Remove background** (layer settings → Background) runs entirely in your browser and is loaded lazily, only when you click it (everything else works offline):
 
@@ -383,8 +390,6 @@ See [PRIVACY.md](PRIVACY.md) for the full policy.
 - [IS-Net general-use](https://huggingface.co/BritishWerewolf/IS-Net) ONNX model (~170 MB, downloaded once and cached by the browser from Hugging Face) — Apache 2.0, from [xuebinqin/DIS](https://github.com/xuebinqin/DIS) via [rembg](https://github.com/danielgatis/rembg)
 
 Your image is never uploaded; only the library and model files are downloaded.
-
----
 
 ## License
 
