@@ -2434,6 +2434,12 @@ input[type="number"]:focus { border-color: var(--accent); }
   font-size: 9px; color: var(--muted); background: var(--border-hi);
   border-radius: 20px; padding: 1px 6px; font-weight: 600; flex-shrink: 0;
 }
+.layer-group-exit { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 5px; flex-shrink: 0; }
+.layer-group-exit:hover { color: var(--text); background: rgba(0,0,0,0.07); }
+.layer-group-exit.on { color: #6c63ff; background: rgba(108,99,255,0.12); }
+.grp-exit-panel { padding: 8px 10px 4px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.02); }
+.grp-exit-title { font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-hi); margin-bottom: 6px; }
+.grp-exit-hint { font-size: 9px; color: var(--muted); line-height: 1.4; margin: 6px 0; }
 .layer-group-eye {
   width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
   border-radius: 5px; border: none; background: transparent;
@@ -4766,6 +4772,9 @@ function saveProject(projectId = currentProjectId) {
           cameraMode: layer.cameraMode,
           cameraDurationMs: layer.cameraDurationMs,
           camFrame: layer.camFrame || null,
+          rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
+          fx: layer.fx ? { ...layer.fx } : null,
+          exit: layer.exit ? { ...layer.exit } : null,
           // Text layer properties
           kind: layer.kind,
           textProps: layer.textProps,
@@ -4935,6 +4944,9 @@ function loadProject(projectId) {
                 cameraMode: layerData.cameraMode || 'none',
                 cameraDurationMs: layerData.cameraDurationMs ?? 1200,
                 camFrame: layerData.camFrame || null,
+                rotation: layerData.rotation || 0, lockAspect: layerData.lockAspect !== false,
+                fx: layerData.fx ? { ...layerData.fx } : null,
+                exit: layerData.exit ? { ...layerData.exit } : null,
                 // Text layer properties
                 kind: layerData.kind || null,
                 textProps: layerData.textProps || null,
@@ -5396,6 +5408,9 @@ function _serializeState() {
       cameraMode: layer.cameraMode,
       cameraDurationMs: layer.cameraDurationMs,
       camFrame: layer.camFrame ? { ...layer.camFrame } : null,
+      rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
+      fx: layer.fx ? { ...layer.fx } : null,
+      exit: layer.exit ? { ...layer.exit } : null,
     })),
   };
 }
@@ -5550,6 +5565,9 @@ function _applySnapshot(snap, label) {
           cameraMode: ld.cameraMode || 'none',
           cameraDurationMs: ld.cameraDurationMs ?? 1200,
           camFrame: ld.camFrame ? { ...ld.camFrame } : null,
+          rotation: ld.rotation || 0, lockAspect: ld.lockAspect !== false,
+          fx: ld.fx ? { ...ld.fx } : null,
+          exit: ld.exit ? { ...ld.exit } : null,
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
@@ -6042,6 +6060,7 @@ window.addEventListener('load', () => {
      ANIMATION ENGINE (external module)
 ════════════════════════════════════════════════════════════════════════ -->
 <script src="animations.js"></script>
+<script src="animate-css-data.js"></script>
 
 <script>
 // ─── POLYFILL ───
@@ -6351,6 +6370,389 @@ function normalizeRestoredLayerIds(layerData) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// EFFECTS (animate.css) — played on an image after it has appeared
+// animate.css animates the DOM, but the scene lives on a canvas, so animate-css-data.js holds its keyframes
+// as plain data and the code below evaluates them (transform list + opacity + easing) every frame.
+// layer.fx = { name, durMs, reps }   reps: 1..10, or 0 = repeat until the end of the video
+// ═══════════════════════════════════════════════════════════════════════════
+const FX_TAIL_SEC = 3;                         // how long an endless effect keeps going after the last group/audio
+function fxSpec(name) { return window.ANIMATE_CSS && window.ANIMATE_CSS[name]; }
+function fxDefaultDur(name) { const sp = fxSpec(name); return Math.round(((sp && sp.d) || 1) * 1000); }
+function fxLabel(name) { return name.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).replace(/ (.)/g, (m, c) => ' ' + c.toLowerCase()); }
+const FX_CATS = ['Attention seekers', 'Fading', 'Zooming', 'Bouncing', 'Sliding', 'Rotating', 'Flippers', 'Back', 'Light speed', 'Specials'];
+function fxOptionsHtml(selected) {
+  const A = window.ANIMATE_CSS || {};
+  let html = `<option value="">None</option>`;
+  FX_CATS.forEach(cat => {
+    const names = Object.keys(A).filter(n => A[n].c === cat);
+    if (!names.length) return;
+    html += `<optgroup label="${cat}">` + names.map(n => `<option value="${n}"${n === selected ? ' selected' : ''}>${fxLabel(n)}${A[n].r === 'out' ? ' (removes it)' : ''}</option>`).join('') + `</optgroup>`;
+  });
+  return html;
+}
+const _bezCache = new Map();
+function fxEase(e, u) {                         // CSS cubic-bezier easing; null = CSS default "ease"
+  const c = e || [0.25, 0.1, 0.25, 1], key = c.join();
+  let f = _bezCache.get(key);
+  if (!f) {
+    const [x1, y1, x2, y2] = c;
+    const bx = t => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3, by = t => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;
+    f = x => { let lo = 0, hi = 1, t = x; for (let i = 0; i < 24; i++) { const v = bx(t); if (Math.abs(v - x) < 1e-5) break; if (v < x) lo = t; else hi = t; t = (lo + hi) / 2; } return by(t); };
+    _bezCache.set(key, f);
+  }
+  return u <= 0 ? 0 : u >= 1 ? 1 : f(u);
+}
+function _fxIdentity(op) {
+  switch (op[0]) { case 'T': return ['T', 0, op[2], 0, op[4], 0]; case 'S': return ['S', 1, 1]; case 'P': return ['P', op[1]]; default: return [op[0], 0]; }
+}
+function _fxLerpOps(a, b, u) {                  // CSS rule: lists are matched by position, a shorter list is padded with identities
+  const out = [], n = Math.max(a.length, b.length), L = (x, y) => x + (y - x) * u;
+  for (let i = 0; i < n; i++) {
+    const oa = a[i] || _fxIdentity(b[i]), ob = b[i] || _fxIdentity(a[i]);
+    if (oa[0] !== ob[0]) { out.push(u < 0.5 ? oa : ob); continue; }
+    switch (oa[0]) {
+      case 'T': out.push(['T', L(oa[1], ob[1]), oa[1] === 0 ? ob[2] : oa[2], L(oa[3], ob[3]), oa[3] === 0 ? ob[4] : oa[4], L(oa[5] || 0, ob[5] || 0)]); break;
+      case 'S': out.push(['S', L(oa[1], ob[1]), L(oa[2], ob[2])]); break;
+      case 'P': out.push(['P', ob[1]]); break;
+      default: out.push([oa[0], L(oa[1], ob[1])]);
+    }
+  }
+  return out;
+}
+function _fxTrack(frames, t, lerp, identityOf) {   // value of one property track at time t (0..1)
+  if (!frames.length) return null;
+  const f = frames.slice();
+  if (f[0].t > 0) f.unshift({ t: 0, e: null, v: identityOf(f[0]) });
+  if (f[f.length - 1].t < 1) f.push({ t: 1, e: null, v: identityOf(f[f.length - 1]) });
+  for (let i = 0; i < f.length - 1; i++) {
+    if (t >= f[i].t && t <= f[i + 1].t) {
+      const span = f[i + 1].t - f[i].t, u = span > 0 ? (t - f[i].t) / span : 1;
+      return lerp(f[i].v, f[i + 1].v, fxEase(f[i].e, u));
+    }
+  }
+  return f[f.length - 1].v;
+}
+function fxEval(spec, t) {
+  const tr = _fxTrack(spec.tr.map(x => ({ t: x.t, e: x.e, v: x.o })), t, _fxLerpOps, fr => fr.v.map(_fxIdentity)) || [];
+  const op = _fxTrack(spec.op.map(x => ({ t: x.t, e: x.e, v: x.v })), t, (a, b, u) => a + (b - a) * u, () => 1);
+  return { ops: tr, op: op === null ? 1 : op };
+}
+// Paint the snapshot (canvas px box bx,by,bw,bh) with the effect state `st` at scale k.
+// box: the rectangle the effect's origin and percentages refer to (default: the snapshot itself; a group uses the
+// rectangle around all its images, so they move as one).
+function fxPaint(c, spec, st, snap, k, box) {
+  const b = box || snap, bx = b.x, by = b.y, bw = b.w, bh = b.h;
+  c.save();
+  c.globalAlpha *= Math.max(0, Math.min(1, st.op));
+  const ox = bx + spec.org[0] * bw, oy = by + spec.org[1] * bh;
+  c.translate(ox, oy);
+  let persp = 0, z = 0;
+  const depth = () => persp ? persp / Math.max(1, persp - z) : 1;       // flat stand-in for the 3-D perspective
+  for (const o of st.ops) {
+    switch (o[0]) {
+      case 'P': persp = o[1] * k; break;
+      case 'T': c.translate(o[2] ? o[1] * bw / 100 : o[1] * k, o[4] ? o[3] * bh / 100 : o[3] * k); z += (o[5] || 0) * k; break;
+      case 'S': c.scale(o[1], o[2]); break;
+      case 'R': c.rotate(o[1] * Math.PI / 180); break;
+      case 'KX': c.transform(1, 0, Math.tan(o[1] * Math.PI / 180), 1, 0, 0); break;
+      case 'KY': c.transform(1, Math.tan(o[1] * Math.PI / 180), 0, 1, 0, 0); break;
+      case 'RY': { const ds = depth(); c.scale(ds * Math.cos(o[1] * Math.PI / 180), ds); break; }
+      case 'RX': { const ds = depth(); c.scale(ds, ds * Math.cos(o[1] * Math.PI / 180)); break; }
+    }
+  }
+  c.translate(-ox, -oy);
+  c.drawImage(snap.canvas, snap.x, snap.y);
+  c.restore();
+}
+
+// -- live effects during a run --
+// A "live" entry is a layer that is kept off the baked background so it can still move or leave:
+//   phase 'fx'   its effect (animate.css), once / N times / endless
+//   phase 'hold' drawn still, waiting (for its exit, or about to be baked back in)
+//   phase 'exit' its exit effect (an animate.css "out" one); afterwards the image is gone
+// The exit belongs to the GROUP (state.groups[i].exit = { name, durMs, holdMs }): when every image of the group has
+// appeared, the group stays holdMs, then ALL its images leave together as one piece (the effect is computed on the box
+// around the whole group), and only then does the next group start. An image that is in no group can have its own exit.
+function fxReset() {
+  const fx = state._fx; if (fx && fx.raf) cancelAnimationFrame(fx.raf);
+  state.layers.forEach(l => { l._fxLive = false; l._fxGone = false; });
+  state._fx = { live: [], raf: 0, tail: null, gate: null, gated: -1 };
+}
+function fxExitCfg(layer) {
+  if (!layer) return null;
+  if (layer.groupId != null) { const g = state.groups.find(x => x.id === layer.groupId); return g && g.exit && fxSpec(g.exit.name) ? g.exit : null; }
+  return layer.exit && fxSpec(layer.exit.name) ? layer.exit : null;
+}
+function fxWantsLive(layer) {
+  return !!(layer && ((layer.fx && fxSpec(layer.fx.name)) || fxExitCfg(layer)));
+}
+// The picture of the layer as it looks when it has finished appearing is drawn into a small canvas (the layer's
+// bounding box) instead of being baked into the shared background, so it can be moved afterwards.
+function fxBeginSnapshot(layer) {
+  const bb = layerBBox(layer), pad = 2, x = Math.floor(bb.x) - pad, y = Math.floor(bb.y) - pad, w = Math.ceil(bb.w) + pad * 2, h = Math.ceil(bb.h) + pad * 2;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'); g.translate(-x, -y);
+  state._fxSnap = { canvas: cv, x, y, w, h };
+  return g;
+}
+function fxRegister(layer) {
+  const snap = state._fxSnap; state._fxSnap = null;
+  if (!snap) return;
+  if (!state._fx) fxReset();
+  const fxSp = layer.fx && fxSpec(layer.fx.name), cfg = fxExitCfg(layer);
+  const e = { layer, snap, start: tlRunMs(), phase: 'hold', exitAt: null };
+  if (fxSp) {
+    e.fx = { spec: fxSp, dur: Math.max(100, layer.fx.durMs || fxDefaultDur(layer.fx.name)), reps: fxSp.r === 'out' ? 1 : (layer.fx.reps === 0 ? Infinity : Math.max(1, layer.fx.reps || 1)) };
+    e.phase = 'fx';
+  }
+  if (cfg) e.exit = { spec: fxSpec(cfg.name), dur: Math.max(100, cfg.durMs || fxDefaultDur(cfg.name)), hold: Math.max(0, cfg.holdMs ?? 1000), gid: layer.groupId ?? null };
+  state._fx.live.push(e);
+  layer._fxLive = true; layer._fxGone = false;
+  fxEnsureLoop();
+}
+function fxFinish(it, gone) {                    // the entry is over: the image is either gone or part of the picture again
+  const live = state._fx.live, i = live.indexOf(it); if (i >= 0) live.splice(i, 1);
+  it.layer._fxLive = false;
+  if (gone || (it.fx && it.fx.spec.r === 'out' && it.phase !== 'hold')) { it.layer._fxGone = true; return; }
+  if (state.bgCanvas) state.bgCanvas.getContext('2d').drawImage(it.snap.canvas, it.snap.x, it.snap.y);
+}
+// The box around every image of a group that is still on screen: what a group exit is computed on.
+function fxGroupBox(gid) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  state._fx.live.forEach(it => { if (it.exit && it.exit.gid === gid) { x0 = Math.min(x0, it.snap.x); y0 = Math.min(y0, it.snap.y); x1 = Math.max(x1, it.snap.x + it.snap.w); y1 = Math.max(y1, it.snap.y + it.snap.h); } });
+  return x0 === Infinity ? null : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+function fxDrawLive(c) {
+  const fx = state._fx; if (!fx || !fx.live.length) return;
+  const now = tlRunMs(), k = videoSize()[0] / 1280;
+  const still = it => c.drawImage(it.snap.canvas, it.snap.x, it.snap.y);
+  const boxes = {};                               // one box per group for this frame (taken before anybody leaves)
+  fx.live.forEach(it => { if (it.exit && it.exit.gid != null && boxes[it.exit.gid] === undefined) boxes[it.exit.gid] = fxGroupBox(it.exit.gid); });
+  [...fx.live].sort((a, b) => state.layers.indexOf(a.layer) - state.layers.indexOf(b.layer)).forEach(it => {
+    if (it.phase === 'fx' && it.exit && it.fx.reps === Infinity && it.exitAt !== null && now >= it.exitAt) {
+      it.phase = 'exit'; it.exitStart = now;                                   // an endless effect is cut short when it is time to leave
+    }
+    if (it.phase === 'fx') {
+      const el = Math.max(0, now - it.start), total = it.fx.dur * it.fx.reps;
+      if (el < total) { fxPaint(c, it.fx.spec, fxEval(it.fx.spec, (el % it.fx.dur) / it.fx.dur), it.snap, k); return; }
+      // finished: an "out" effect leaves the image gone, anything else leaves it as it was
+      if (it.fx.spec.r === 'out') { fxFinish(it, true); return; }
+      it.phase = 'hold';
+    }
+    if (it.phase === 'hold') {
+      if (!it.exit) { fxFinish(it); still(it); return; }                       // nothing more to do: part of the picture again
+      if (it.exitAt !== null && now >= it.exitAt) { it.phase = 'exit'; it.exitStart = it.exitAt; }
+      else { still(it); return; }
+    }
+    // phase 'exit'
+    const el = Math.max(0, now - it.exitStart);
+    if (el >= it.exit.dur) { fxFinish(it, true); return; }
+    fxPaint(c, it.exit.spec, fxEval(it.exit.spec, el / it.exit.dur), it.snap, k, it.exit.gid != null ? boxes[it.exit.gid] : null);
+  });
+}
+// Which images have to leave before animation group `gpos` may start: those of a (folder) group whose images have all
+// appeared, and lone images of the previous animation group that have an exit of their own.
+function fxExitPlan(gpos) {
+  const fx = state._fx; if (!fx) return [];
+  const groups = state._animGroups || [], prev = groups[gpos - 1] || [];
+  const upcoming = new Set(groups.slice(gpos).flat());
+  return fx.live.filter(it => it.exit && it.exitAt === null && (it.exit.gid == null
+    ? prev.includes(it.layer)
+    : !state.layers.some(l => l.groupId === it.exit.gid && l.visible !== false && upcoming.has(l))));
+}
+function fxTriggerEntries(entries) {             // they start leaving after their "stays for" time
+  const now = tlRunMs();
+  entries.forEach(it => { if (it.exit && it.exitAt === null) it.exitAt = now + it.exit.hold; });
+}
+// Start the next group only after the images that must leave have gone.
+function fxGate(entries, done) {
+  const fx = state._fx, id = state._runId;
+  fxTriggerEntries(entries);
+  fx.gate = { layers: new Set(entries.map(e => e.layer)), done: () => { if (id === state._runId) done(); } };
+  setTimeout(() => { if (state._fx === fx && fx.gate) { state.playing = true; updatePlayIcons(); } }, 0);   // not inside the ticker's call (see fxEnterTail)
+  fxEnsureLoop();
+}
+function fxEnsureLoop() {
+  const fx = state._fx; if (!fx || fx.raf) return;
+  const tick = () => { fx.raf = requestAnimationFrame(tick); fxIdleFrame(); };
+  fx.raf = requestAnimationFrame(tick);
+}
+// Runs on its own while no group is drawing (camera moves, hand-overs, exits, the tail), so effects never freeze.
+function fxIdleFrame() {
+  const fx = state._fx; if (!fx) return;
+  if (state._runLog && state._runLog.pausedAt != null) return;                          // paused
+  const running = state.playing && !fx.tail && !fx.gate && state._activeSlots && state._activeSlots.some(s => !s.done);
+  if (running) return;                                                                   // the slot ticker draws them
+  if (!fx.live.length && !fx.tail && !fx.gate) { cancelAnimationFrame(fx.raf); fx.raf = 0; return; }
+  _mainCtx.save(); state._slotMode = false; fillBg(_mainCtx); fxDrawLive(_mainCtx); _mainCtx.restore();
+  if (fx.gate && ![...fx.gate.layers].some(l => fx.live.some(it => it.layer === l))) {   // everything that had to leave has left
+    const g = fx.gate; fx.gate = null; g.done(); return;
+  }
+  if (fx.tail) {
+    const endless = fx.live.some(it => it.fx && it.fx.reps === Infinity && !it.exit);
+    if (!fx.live.length || (endless && tlRunMs() >= fx.tail.endMs)) fxEndRun();
+  }
+}
+function fxHasWork() { return !!(state._fx && state._fx.live.length); }
+function fxEnterTail() {                         // every group is done but effects / exits are still going
+  const fx = state._fx;
+  fxTriggerEntries(fx.live);                     // whatever has an exit and has not left yet leaves now
+  const endless = fx.live.some(it => it.fx && it.fx.reps === Infinity && !it.exit);
+  fx.tail = { endMs: endless ? Math.max(tlRunMs(), tlAudioEnd() * 1000) + FX_TAIL_SEC * 1000 : Infinity };
+  // Not now: this runs inside the slot ticker's call, and animate() re-schedules itself if it sees playing = true.
+  setTimeout(() => { if (state._fx && state._fx.tail) { state.playing = true; updatePlayIcons(); } }, 0);
+  fxEnsureLoop();
+}
+function fxEndRun() {
+  const fx = state._fx; if (!fx) return;
+  cancelAnimationFrame(fx.raf); fx.raf = 0;
+  [...fx.live].forEach(it => fxFinish(it)); fx.tail = null; fx.gate = null;
+  state.playing = false; updatePlayIcons();
+  _allLayersDoneFinal();
+}
+
+// -- layer settings: choose / tune / preview --
+function setLayerFx(id, name) {
+  const l = getLayerById(id); if (!l) return;
+  pushUndoSnapshot();
+  l.fx = name ? { name, durMs: fxDefaultDur(name), reps: (l.fx && l.fx.reps !== undefined) ? l.fx.reps : 1 } : null;
+  renderLayerList(); scheduleAutoSave();
+}
+function setLayerFxDuration(id, sec, label) {
+  const l = getLayerById(id); if (!l || !l.fx) return;
+  if (!l._fxUndoTimer) pushUndoSnapshot();
+  clearTimeout(l._fxUndoTimer); l._fxUndoTimer = setTimeout(() => { l._fxUndoTimer = null; }, 500);
+  l.fx.durMs = Math.round(Math.max(0.2, Math.min(6, sec)) * 1000);
+  if (label) label.textContent = (l.fx.durMs / 1000).toFixed(1) + 's';
+  scheduleAutoSave();
+}
+function setLayerFxReps(id, val) {
+  const l = getLayerById(id); if (!l || !l.fx) return;
+  pushUndoSnapshot(); l.fx.reps = parseInt(val) || 0; scheduleAutoSave();
+}
+// "Leaves the scene" — the same controls for a group (state.groups[i].exit) and for an image that is in no group.
+function fxOutOptionsHtml(selected) {
+  const A = window.ANIMATE_CSS || {};
+  let html = `<option value="">Stays</option>`;
+  FX_CATS.forEach(cat => {
+    const names = Object.keys(A).filter(n => A[n].c === cat && A[n].r === 'out');
+    if (!names.length) return;
+    html += `<optgroup label="${cat}">` + names.map(n => `<option value="${n}"${n === selected ? ' selected' : ''}>${fxLabel(n)}</option>`).join('') + `</optgroup>`;
+  });
+  return html;
+}
+function _exitNum(cfg, key, sec) { cfg[key] = Math.round(Math.max(key === 'holdMs' ? 0 : 0.2, Math.min(key === 'holdMs' ? 15 : 6, sec)) * 1000); }
+function setLayerExit(id, name) {
+  const l = getLayerById(id); if (!l) return;
+  pushUndoSnapshot();
+  l.exit = name ? { name, durMs: fxDefaultDur(name), holdMs: (l.exit && l.exit.holdMs !== undefined) ? l.exit.holdMs : 1000 } : null;
+  renderLayerList(); scheduleAutoSave();
+}
+function setLayerExitNum(id, key, sec, label) {      // key: 'durMs' | 'holdMs'
+  const l = getLayerById(id); if (!l || !l.exit) return;
+  if (!l._exitUndoTimer) pushUndoSnapshot();
+  clearTimeout(l._exitUndoTimer); l._exitUndoTimer = setTimeout(() => { l._exitUndoTimer = null; }, 500);
+  _exitNum(l.exit, key, sec); if (label) label.textContent = (l.exit[key] / 1000).toFixed(1) + 's';
+  scheduleAutoSave();
+}
+function setGroupExit(gid, name) {
+  const g = state.groups.find(x => x.id === gid); if (!g) return;
+  pushUndoSnapshot();
+  g.exit = name ? { name, durMs: fxDefaultDur(name), holdMs: (g.exit && g.exit.holdMs !== undefined) ? g.exit.holdMs : 1000 } : null;
+  renderLayerList(); scheduleAutoSave();
+}
+function setGroupExitNum(gid, key, sec, label) {
+  const g = state.groups.find(x => x.id === gid); if (!g || !g.exit) return;
+  if (!g._exitUndoTimer) pushUndoSnapshot();
+  clearTimeout(g._exitUndoTimer); g._exitUndoTimer = setTimeout(() => { g._exitUndoTimer = null; }, 500);
+  _exitNum(g.exit, key, sec); if (label) label.textContent = (g.exit[key] / 1000).toFixed(1) + 's';
+  scheduleAutoSave();
+}
+state._grpExitOpen = state._grpExitOpen || new Set();
+function toggleGroupExitPanel(gid) {
+  if (state._grpExitOpen.has(gid)) state._grpExitOpen.delete(gid); else state._grpExitOpen.add(gid);
+  const el = document.getElementById('grp-exit-' + gid); if (el) el.style.display = state._grpExitOpen.has(gid) ? 'block' : 'none';
+}
+function groupExitPanelHtml(grp) {
+  const open = state._grpExitOpen.has(grp.id), ex = grp.exit && fxSpec(grp.exit.name) ? grp.exit : null;
+  const sel = `style="width:100%;margin-bottom:6px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);outline:none;"`;
+  const slider = (label, key, min, max, step, val) => `<div style="font-size:9px;color:var(--muted);margin-bottom:3px">${label}</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${val / 1000}" data-slider-fill
+        oninput="updateRangeFill(this);setGroupExitNum(${grp.id},'${key}',+this.value,this.nextElementSibling)">
+      <span style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${(val / 1000).toFixed(1)}s</span>
+    </div>`;
+  return `<div class="grp-exit-panel" id="grp-exit-${grp.id}" style="display:${open ? 'block' : 'none'}" onclick="event.stopPropagation()">
+    <div class="grp-exit-title">This group leaves the scene</div>
+    <select ${sel} onchange="setGroupExit(${grp.id},this.value)">${fxOutOptionsHtml(ex && ex.name)}</select>
+    ${ex ? `${slider('Leaving takes', 'durMs', 0.2, 6, 0.1, ex.durMs || fxDefaultDur(ex.name))}${slider('Stays on screen for', 'holdMs', 0, 15, 0.5, ex.holdMs ?? 1000)}
+    <button class="tl-btn" onclick="fxPreviewGroup(${grp.id})">▶ Preview</button>
+    <div class="grp-exit-hint">When every image of the group has appeared, the group stays for the time above and then <b>all its images leave together</b> with this effect. The next group waits until it has gone.</div>`
+    : `<div class="grp-exit-hint">Pick an animate.css exit (fadeOut, zoomOut, slideOut…) so the whole group leaves the screen before the next one starts.</div>`}
+  </div>`;
+}
+let _fxPreview = null;
+function _fxPreviewStop() { if (_fxPreview) { cancelAnimationFrame(_fxPreview.raf); _fxPreview.layers.forEach(l => { l._fxPreviewHide = false; }); _fxPreview = null; } }
+// Plays an effect/exit on the editor canvas. items: [{layer, snap}], box: what the transform refers to (null = each snap).
+function _fxPlayPreview(items, spec, dur, reps, box) {
+  _fxPreviewStop();
+  const k = videoSize()[0] / 1280, t0 = performance.now(), layers = items.map(i => i.layer), st = { layers, raf: 0 };
+  _fxPreview = st;
+  const frame = now => {
+    const el = now - t0;
+    layers.forEach(l => { l._fxPreviewHide = true; }); redrawLayersOnCanvas(); layers.forEach(l => { l._fxPreviewHide = false; });
+    if (el >= dur * reps) { _fxPreview = null; redrawLayersOnCanvas(); drawSelectionHandles(); return; }
+    const s = fxEval(spec, (el % dur) / dur);
+    items.forEach(it => { ctx.save(); ctx.globalAlpha = it.layer.opacity ?? 1; fxPaint(ctx, spec, s, it.snap, k, box); ctx.restore(); });
+    st.raf = requestAnimationFrame(frame);
+  };
+  st.raf = requestAnimationFrame(frame);
+}
+function _fxSnapOf(l) { const g = fxBeginSnapshot(l); drawLayerImg(g, l); const snap = state._fxSnap; state._fxSnap = null; return { layer: l, snap }; }
+function fxPreview(id, which) {                   // which: 'fx' (default) | 'exit' (an image that is in no group)
+  const l = getLayerById(id); if (!l || state.playing) return;
+  const cfg = which === 'exit' ? l.exit : l.fx; if (!cfg) return;
+  const spec = fxSpec(cfg.name); if (!spec) return;
+  const dur = Math.max(100, cfg.durMs || fxDefaultDur(cfg.name)), reps = (which === 'exit' || spec.r === 'out') ? 1 : (cfg.reps === 0 ? 2 : Math.min(2, cfg.reps || 1));
+  _fxPlayPreview([_fxSnapOf(l)], spec, dur, reps, null);
+}
+function fxPreviewGroup(gid) {
+  const g = state.groups.find(x => x.id === gid); if (!g || !g.exit || state.playing) return;
+  const spec = fxSpec(g.exit.name); if (!spec) return;
+  const items = state.layers.filter(l => l.groupId === gid && l.visible !== false).map(_fxSnapOf); if (!items.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  items.forEach(i => { x0 = Math.min(x0, i.snap.x); y0 = Math.min(y0, i.snap.y); x1 = Math.max(x1, i.snap.x + i.snap.w); y1 = Math.max(y1, i.snap.y + i.snap.h); });
+  _fxPlayPreview(items, spec, Math.max(100, g.exit.durMs || fxDefaultDur(g.exit.name)), 1, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LAYER GEOMETRY — a layer is the rectangle (x, y, w, h) rotated by `rotation` degrees about its centre
+// ═══════════════════════════════════════════════════════════════════════════
+function layerRad(l) { return (l.rotation || 0) * Math.PI / 180; }
+function layerCenter(l) { return { x: l.x + l.w / 2, y: l.y + l.h / 2 }; }
+function toLocal(px, py, l) {                     // world point -> layer axes (origin at its centre)
+  const c = layerCenter(l), r = -layerRad(l), cs = Math.cos(r), sn = Math.sin(r), dx = px - c.x, dy = py - c.y;
+  return { x: dx * cs - dy * sn, y: dx * sn + dy * cs };
+}
+function toWorld(lx, ly, l) {                     // layer axes -> world point
+  const c = layerCenter(l), r = layerRad(l), cs = Math.cos(r), sn = Math.sin(r);
+  return { x: c.x + lx * cs - ly * sn, y: c.y + lx * sn + ly * cs };
+}
+function layerContains(l, px, py) { const q = toLocal(px, py, l); return Math.abs(q.x) <= l.w / 2 && Math.abs(q.y) <= l.h / 2; }
+function layerBBox(l) {                           // axis-aligned box around the rotated rectangle
+  const r = layerRad(l), c = Math.abs(Math.cos(r)), sn = Math.abs(Math.sin(r)), bw = l.w * c + l.h * sn, bh = l.w * sn + l.h * c, ce = layerCenter(l);
+  return { x: ce.x - bw / 2, y: ce.y - bh / 2, w: bw, h: bh };
+}
+// The one place a layer's picture is painted. x/y/w/h default to the layer's own; the rotation is about the centre.
+function drawLayerImg(c, l, x = l.x, y = l.y, w = l.w, h = l.h) {
+  const rot = l.rotation || 0;
+  if (!rot) { c.drawImage(l.img, x, y, w, h); return; }
+  c.save(); c.translate(x + w / 2, y + h / 2); c.rotate(rot * Math.PI / 180);
+  c.drawImage(l.img, -w / 2, -h / 2, w, h); c.restore();
+}
+function layerLocked(l, shift) { return (l.lockAspect !== false) !== !!shift; }   // Shift flips the toggle while dragging
+
 function addLayer(img, name) {
   pushUndoSnapshot();
   const id = ++_layerIdCounter;
@@ -6395,6 +6797,9 @@ function addLayer(img, name) {
     cameraMode: 'none',
     cameraDurationMs: 1200,
     camFrame: null,
+    rotation: 0, lockAspect: true,
+    fx: null,
+    exit: null,
     hasPngAlpha };
   state.layers.push(layer);
   
@@ -6676,7 +7081,7 @@ function _cameraTargetForGroup(group) {
   focus.forEach(l => {
     const grp = l.cameraMode === 'group' && l.groupId ? state.groups.find(g => g.id === l.groupId) : null;
     const members = grp ? grp.layerIds.map(getLayerById).filter(m => m && m.visible !== false) : [l];
-    members.forEach(m => boxes.push(m));
+    members.forEach(m => boxes.push(layerBBox(m)));
   });
   const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
   const x1 = Math.max(...boxes.map(b => b.x + b.w)), y1 = Math.max(...boxes.map(b => b.y + b.h));
@@ -6687,7 +7092,7 @@ function setCameraMode(el) {
   const layer = getSelectedLayer(); if (!layer) return;
   pushUndoSnapshot(); clearActivePreset();
   layer.cameraMode = el.dataset.cameraMode;
-  if (layer.cameraMode === 'frame' && !layer.camFrame) layer.camFrame = _cameraFit({ x: layer.x, y: layer.y, w: layer.w, h: layer.h });
+  if (layer.cameraMode === 'frame' && !layer.camFrame) layer.camFrame = _cameraFit(layerBBox(layer));
   if (layer.cameraMode === 'group' && !layer.groupId) showToast('Add this layer to a group to zoom on the whole group', el);
   renderLayerList();
   drawSelectionHandles();
@@ -6788,7 +7193,7 @@ function _dragCameraFrame(layer, px, py, dx, dy) {
 function fitCameraFrameToLayer() {
   const l = getSelectedLayer(); if (!l) return;
   pushUndoSnapshot();
-  l.camFrame = _cameraFit({ x: l.x, y: l.y, w: l.w, h: l.h });
+  l.camFrame = _cameraFit(layerBBox(l));
   drawSelectionHandles(); scheduleAutoSave();
 }
 function useViewAsCameraFrame() {
@@ -6865,6 +7270,7 @@ function _generateNow() {
   state._dissolveMap   = null;
   state._animProgress  = 0;
   state._runId = (state._runId || 0) + 1;
+  fxReset();
   state._runLog = { t0: performance.now(), groups: [], pausedMs: 0, pausedAt: null };
   tlRunStarted();
   cameraReset();
@@ -6894,6 +7300,11 @@ function _generateNow() {
 
 function _runGroupAt(gpos) {
   if (!state._animGroups || gpos >= state._animGroups.length) { _allLayersDone(); return; }
+  // Groups that leave the scene: let them go first, then start this group (the wait counts in the timeline)
+  if (gpos > 0 && state._fx && state._fx.gated !== gpos) {
+    const leaving = fxExitPlan(gpos);
+    if (leaving.length) { state._fx.gated = gpos; fxGate(leaving, () => _runGroupAt(gpos)); return; }
+  }
   state._groupPos = gpos;
   tlLogBegin(gpos);
   const group     = state._animGroups[gpos];
@@ -6917,7 +7328,7 @@ function _runGroupAt(gpos) {
       if (l.visible === false) return;
       fctx.save();
       fctx.globalAlpha = l.opacity ?? 1;
-      fctx.drawImage(l.img, l.x, l.y, l.w, l.h);
+      drawLayerImg(fctx, l);
       fctx.restore();
     });
     state._revealFinalCanvas = fc;
@@ -7020,6 +7431,7 @@ function _runGroupAt(gpos) {
   if (cam) {
     _mainCtx.clearRect(0, 0, state.canvasW, state.canvasH);
     _mainCtx.drawImage(sharedBg, 0, 0);
+    fxDrawLive(_mainCtx);
     hctx.clearRect(0, 0, state.canvasW, state.canvasH);
   }
   if (cam) _cameraMoveTo(cam.target, cam.durMs, () => { if (!state.playing && state._groupPos === gpos) startAnim(); });
@@ -7029,6 +7441,10 @@ function _runGroupAt(gpos) {
 function _allLayersDone() {
   tlLogDone();
   if (_cameraZoomed() && state.cameraEndFull !== false) _cameraMoveTo({ x: 0, y: 0, w: state.canvasW }, 1000);
+  if (fxHasWork()) { fxEnterTail(); return; }        // effects/exits still going: keep running, finish when they end
+  _allLayersDoneFinal();
+}
+function _allLayersDoneFinal() {
   state._activeSlots  = [];
   state._currentSlot  = null;
   state._slotMode     = false;
@@ -7067,7 +7483,7 @@ function _allLayersDone() {
     } else {
       // Nothing is opting out of reveal — safe to draw every layer's raw image directly.
       state.bgCanvas = null;
-      redrawLayersOnCanvas();
+      redrawLayersOnCanvas({ final: true });
     }
     // BUG FIX: on Drawing-tab styles, the last frame draws the hand and THEN
     // calls finishAnim() — whose own hctx.clearRect() call fires while
@@ -7121,10 +7537,10 @@ function _allLayersDone() {
     }
     if (!anyOutlineNoReveal) {
       _mainCtx.globalAlpha = t;
-      state.layers.filter(l => l.visible !== false).forEach(l => {
+      state.layers.filter(l => l.visible !== false && !l._fxGone).forEach(l => {
         _mainCtx.save();
         _mainCtx.globalAlpha *= (l.opacity ?? 1);
-        _mainCtx.drawImage(l.img, l.x, l.y, l.w, l.h);
+        drawLayerImg(_mainCtx, l);
         _mainCtx.restore();
       });
     }
@@ -7702,11 +8118,15 @@ function renderLayerList() {
         <input class="layer-group-name-input" value="${grp.name}" onclick="event.stopPropagation()"
           onchange="renameGroup(${grp.id},this.value)" onfocus="event.stopPropagation()">
         <span class="layer-group-count">${grpLayers.length}</span>
+        <button class="layer-group-exit${grp.exit && fxSpec(grp.exit.name) ? ' on' : ''}" onclick="event.stopPropagation();toggleGroupExitPanel(${grp.id})" title="${grp.exit && fxSpec(grp.exit.name) ? 'This group leaves the scene with ' + fxLabel(grp.exit.name) : 'Make this group leave the scene (fade out…)'}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
         <button class="layer-group-eye${eyeClass}" onclick="event.stopPropagation();toggleGroupVisibility(${grp.id})" title="Toggle group visibility">${eyeIcon}</button>
         <button class="layer-group-del" onclick="event.stopPropagation();dissolveGroup(${grp.id})" title="Ungroup">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
         </button>
       </div>
+      ${groupExitPanelHtml(grp)}
       <div class="layer-group-body" id="grp-body-${grp.id}"></div>`;
 
     entries.push({ first: grpLayers[0], node: grpEl });
@@ -7771,6 +8191,10 @@ function _buildLayerItem(layer) {
           oninput="event.stopPropagation();updateRangeFill(this);setLayerResize(${layer.id},+this.value);this.closest('div').querySelector('.resize-val').textContent=this.value+'%'">
         <span class="resize-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${resizePct}%</span>
       </div>
+      <div class="toggle-row" style="margin:-4px 0 10px;" onclick="event.stopPropagation()">
+        <span class="toggle-label" style="font-size:11px">Keep proportions</span>
+        <button class="toggle${layer.lockAspect !== false ? ' on' : ''}" title="On: resizing keeps the image's shape. Off: stretch freely. Hold Shift while dragging to flip it." onclick="event.stopPropagation();toggleLockAspect(${layer.id})"></button>
+      </div>
       <div class="section-label" style="margin-top:2px">Opacity</div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
         <input type="range" min="0" max="100" value="${opPct}"
@@ -7793,6 +8217,56 @@ function _buildLayerItem(layer) {
         <div>W <input type="number" style="width:100%;margin-top:3px" value="${Math.round(layer.w)}" onchange="setLayerPos(${layer.id},'w',+this.value)"></div>
         <div>H <input type="number" style="width:100%;margin-top:3px" value="${Math.round(layer.h)}" onchange="setLayerPos(${layer.id},'h',+this.value)"></div>
       </div>
+      <div class="section-label" style="margin-top:12px">Rotate</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" onclick="event.stopPropagation()">
+        <input type="range" min="-180" max="180" step="1" value="${Math.round(layer.rotation || 0)}"
+          data-slider-fill
+          onclick="event.stopPropagation()"
+          oninput="event.stopPropagation();updateRangeFill(this);setLayerRotation(${layer.id},+this.value,this)">
+        <input type="number" min="-180" max="180" step="1" value="${Math.round(layer.rotation || 0)}" title="Degrees"
+          style="width:52px;padding:3px 4px;font-size:11px;text-align:center;background:var(--panel);border:1px solid var(--border);border-radius:5px;color:var(--text)"
+          onchange="setLayerRotation(${layer.id},+this.value,this)">
+        <button class="tl-btn" style="padding:2px 7px" title="Back to 0°" onclick="event.stopPropagation();setLayerRotation(${layer.id},0)">⟲</button>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:6px">Or drag the knob above the image (Shift = 15° steps).</div>
+      <div class="section-label" style="margin-top:12px">Effect</div>
+      <select style="width:100%;margin-bottom:6px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
+        onclick="event.stopPropagation()" onchange="event.stopPropagation();setLayerFx(${layer.id},this.value)">${fxOptionsHtml(layer.fx && layer.fx.name)}</select>
+      ${layer.fx && fxSpec(layer.fx.name) ? `<div style="font-size:9px;color:var(--muted);margin-bottom:3px">Duration</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;" onclick="event.stopPropagation()">
+        <input type="range" min="0.2" max="6" step="0.1" value="${(layer.fx.durMs || fxDefaultDur(layer.fx.name)) / 1000}" data-slider-fill
+          onclick="event.stopPropagation()"
+          oninput="event.stopPropagation();updateRangeFill(this);setLayerFxDuration(${layer.id},+this.value,this.nextElementSibling)">
+        <span style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${((layer.fx.durMs || fxDefaultDur(layer.fx.name)) / 1000).toFixed(1)}s</span>
+      </div>
+      ${fxSpec(layer.fx.name).r === 'out' ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;" onclick="event.stopPropagation()">
+        <span style="font-size:10px;color:var(--muted)">Repeat</span>
+        <select style="flex:1;font-size:11px;padding:4px 6px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);outline:none;" onclick="event.stopPropagation()" onchange="event.stopPropagation();setLayerFxReps(${layer.id},this.value)">
+          ${[1, 2, 3, 5, 10, 0].map(n => `<option value="${n}"${(layer.fx.reps === undefined ? 1 : layer.fx.reps) === n ? ' selected' : ''}>${n === 0 ? '∞ until the video ends' : n + '×'}</option>`).join('')}
+        </select>
+      </div>`}
+      <button class="tl-btn" style="margin-bottom:4px" onclick="event.stopPropagation();fxPreview(${layer.id})">▶ Preview effect</button>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">Plays on the image after it has appeared.${fxSpec(layer.fx.name).r === 'out' ? ' This one makes the image disappear.' : ''}</div>` : `<div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">From animate.css. The effect plays on the image after it has appeared.</div>`}
+      <div class="section-label" style="margin-top:12px">Leaves the scene</div>
+      ${layer.groupId ? `<div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">This image belongs to a group, and the <b>group</b> leaves the scene as a whole. Set it with the <b>⇥</b> button on the group's row.</div>` : `
+      <select style="width:100%;margin-bottom:6px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
+        onclick="event.stopPropagation()" onchange="event.stopPropagation();setLayerExit(${layer.id},this.value)">${fxOutOptionsHtml(layer.exit && layer.exit.name)}</select>
+      ${layer.exit && fxSpec(layer.exit.name) ? `<div style="font-size:9px;color:var(--muted);margin-bottom:3px">Leaving takes</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;" onclick="event.stopPropagation()">
+        <input type="range" min="0.2" max="6" step="0.1" value="${(layer.exit.durMs || fxDefaultDur(layer.exit.name)) / 1000}" data-slider-fill
+          onclick="event.stopPropagation()"
+          oninput="event.stopPropagation();updateRangeFill(this);setLayerExitNum(${layer.id},'durMs',+this.value,this.nextElementSibling)">
+        <span style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${((layer.exit.durMs || fxDefaultDur(layer.exit.name)) / 1000).toFixed(1)}s</span>
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:3px">Stays on screen for</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;" onclick="event.stopPropagation()">
+        <input type="range" min="0" max="15" step="0.5" value="${(layer.exit.holdMs ?? 1000) / 1000}" data-slider-fill
+          onclick="event.stopPropagation()"
+          oninput="event.stopPropagation();updateRangeFill(this);setLayerExitNum(${layer.id},'holdMs',+this.value,this.nextElementSibling)">
+        <span style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${((layer.exit.holdMs ?? 1000) / 1000).toFixed(1)}s</span>
+      </div>
+      <button class="tl-btn" style="margin-bottom:4px" onclick="event.stopPropagation();fxPreview(${layer.id},'exit')">▶ Preview</button>
+      <div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">When its animation step is done, the image stays for the time above, then leaves with this effect. The next step waits until it has left. (Put images in a group to make several leave together.)</div>` : `<div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">An image in no group can leave on its own. To make several images leave together, put them in a group and use the group's <b>⇥</b> button.</div>`}`}
       <div class="section-label" style="margin-top:12px">Camera</div>
       <div class="anim-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px" onclick="event.stopPropagation()">
         ${[['none','Keep'],['layer','This layer'],['group','Layer group'],['full','Full view'],['frame','Custom frame']].map(([m,label]) =>
@@ -7840,12 +8314,35 @@ function _buildLayerItem(layer) {
   return item;
 }
 
+function toggleLockAspect(id) {
+  const l = getLayerById(id); if (!l) return;
+  pushUndoSnapshot();
+  l.lockAspect = l.lockAspect === false;        // undefined/true -> false, false -> true
+  renderLayerList(); scheduleAutoSave();
+}
+function setLayerRotation(id, deg, fromEl) {
+  const l = getLayerById(id); if (!l) return;
+  if (!l._rotUndoTimer) pushUndoSnapshot();     // one undo step per drag of the slider
+  clearTimeout(l._rotUndoTimer); l._rotUndoTimer = setTimeout(() => { l._rotUndoTimer = null; }, 500);
+  deg = Math.max(-180, Math.min(180, Number.isFinite(deg) ? deg : 0));
+  l.rotation = deg;
+  const panel = document.getElementById('ls-' + id);
+  if (panel) panel.querySelectorAll('input[oninput*="setLayerRotation"], input[onchange*="setLayerRotation"]').forEach(inp => {
+    if (inp !== fromEl) { inp.value = Math.round(deg); if (inp.type === 'range') updateRangeFill(inp); }
+  });
+  redrawLayersOnCanvas(); drawSelectionHandles(); scheduleAutoSave();
+}
 function setLayerPos(id, prop, val) {
   pushUndoSnapshot();
   const l = getLayerById(id); if(!l) return;
   if (prop === 'w' || prop === 'h') {
+    const c0 = layerCenter(l), ratio = l.w / l.h;
     l[prop] = Math.max(20, val);
+    if (l.lockAspect !== false) { if (prop === 'w') l.h = Math.max(20, l.w / ratio); else l.w = Math.max(20, l.h * ratio); }
+    if (l.rotation) { l.x = c0.x - l.w / 2; l.y = c0.y - l.h / 2; }     // a rotated layer is resized about its centre
     syncLayerResizeFromCurrentSize(l);
+    const panel = document.getElementById('ls-' + id);
+    ['x','y','w','h'].forEach(q => { const inp = panel?.querySelector(`input[onchange*="'${q}'"]`); if (inp) inp.value = Math.round(l[q]); });
   } else {
     l[prop] = val;
   }
@@ -8080,7 +8577,7 @@ function onDragEnd(e) {
 }
 
 // ── Redraw all layers composited on canvas ──
-function redrawLayersOnCanvas() {
+function redrawLayersOnCanvas(opts) {
   // Early exit if no layers to draw
   if (!state.layers || state.layers.length === 0) {
     fillBg(ctx);
@@ -8094,6 +8591,7 @@ function redrawLayersOnCanvas() {
   state.layers.forEach(layer => {
     if (layer.visible === false) return;
     if (!layer.img) return; // Skip if image not loaded
+    if (layer._fxPreviewHide || (opts && opts.final && layer._fxGone)) return;   // effect preview / removed by an effect
     // Hide the layer being edited — the overlay textarea is the live preview
     if (_ts.active && _ts.editingId !== null && layer.id === _ts.editingId) return;
     
@@ -8105,7 +8603,7 @@ function redrawLayersOnCanvas() {
       ctx.imageSmoothingEnabled = false;
     }
     
-    ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+    drawLayerImg(ctx, layer);
     ctx.restore();
   });
   
@@ -8120,6 +8618,7 @@ function _worldPerPx() {
   return _cameraView().w / (parseFloat(canvas.style.width) || state.canvasW);
 }
 function _hr() { return Math.max(HANDLE_R, 4 * _worldPerPx()); }
+function _rotDist() { return Math.max(26, 26 * _worldPerPx()); }   // stem length of the rotate handle
 
 function _drawCameraFrame(f, active, label) {
   const p = _worldPerPx(), h = f.w * state.canvasH / state.canvasW;
@@ -8158,28 +8657,33 @@ function drawSelectionHandles() {
     if (l !== layer && l.cameraMode === 'frame' && l.camFrame) _drawCameraFrame(l.camFrame, false, `${i + 1} ${l.name}`);
   });
   if (!layer) return;
-  const p = _worldPerPx();
-  const {x,y,w,h} = layer;
+  const p = _worldPerPx(), k = Math.max(1, p / 1.5), c = layerCenter(layer), w = layer.w, h = layer.h;
   sctx.save();
+  sctx.translate(c.x, c.y); sctx.rotate(layerRad(layer));          // draw in the layer's own axes
   // Selection rect
   sctx.strokeStyle='#6c63ff';
-  sctx.lineWidth=2 * Math.max(1, p / 1.5);
-  sctx.setLineDash([5 * Math.max(1, p / 1.5), 3 * Math.max(1, p / 1.5)]);
-  sctx.strokeRect(x,y,w,h);
+  sctx.lineWidth=2 * k;
+  sctx.setLineDash([5 * k, 3 * k]);
+  sctx.strokeRect(-w/2, -h/2, w, h);
   sctx.setLineDash([]);
+  // Rotate handle: a knob on a stem above the top edge
+  const stem = _rotDist();
+  sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * k;
+  sctx.beginPath(); sctx.moveTo(0, -h/2); sctx.lineTo(0, -h/2 - stem); sctx.stroke();
+  sctx.fillStyle='#fff';
+  sctx.beginPath(); sctx.arc(0, -h/2 - stem, _hr(), 0, Math.PI*2); sctx.fill(); sctx.stroke();
+  sctx.beginPath(); sctx.arc(0, -h/2 - stem, _hr() * 0.5, Math.PI * 0.15, Math.PI * 1.65); sctx.stroke();   // a little "turn" arc
   // Corner handles
-  const corners = [[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
-  corners.forEach(([cx2,cy2])=>{
+  [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]].forEach(([cx2,cy2])=>{
     sctx.fillStyle='#6c63ff';
     sctx.beginPath(); sctx.arc(cx2,cy2,_hr(),0,Math.PI*2); sctx.fill();
-    sctx.strokeStyle='#fff'; sctx.lineWidth=1.5 * Math.max(1, p / 1.5); sctx.stroke();
+    sctx.strokeStyle='#fff'; sctx.lineWidth=1.5 * k; sctx.stroke();
   });
   // Edge midpoint handles
-  const mids = [[x+w/2,y],[x+w,y+h/2],[x+w/2,y+h],[x,y+h/2]];
-  mids.forEach(([cx2,cy2])=>{
+  [[0,-h/2],[w/2,0],[0,h/2],[-w/2,0]].forEach(([cx2,cy2])=>{
     sctx.fillStyle='#fff';
     sctx.beginPath(); sctx.arc(cx2,cy2,_hr() * 0.66,0,Math.PI*2); sctx.fill();
-    sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * Math.max(1, p / 1.5); sctx.stroke();
+    sctx.strokeStyle='#6c63ff'; sctx.lineWidth=1.5 * k; sctx.stroke();
   });
   sctx.restore();
   if (layer.cameraMode === 'frame' && layer.camFrame) {
@@ -8202,19 +8706,21 @@ function toCanvasCoords(e) {
   return { x: (e.clientX - rect.left) * s, y: (e.clientY - rect.top) * s };
 }
 function hitTestHandle(px, py, layer) {
-  const {x,y,w,h} = layer;
+  const w = layer.w, h = layer.h;
   const handles = [
-    {type:'nw', cx:x,   cy:y},
-    {type:'ne', cx:x+w, cy:y},
-    {type:'se', cx:x+w, cy:y+h},
-    {type:'sw', cx:x,   cy:y+h},
-    {type:'n',  cx:x+w/2, cy:y},
-    {type:'e',  cx:x+w,   cy:y+h/2},
-    {type:'s',  cx:x+w/2, cy:y+h},
-    {type:'w',  cx:x,     cy:y+h/2},
+    {type:'rot', lx:0,    ly:-h/2 - _rotDist()},
+    {type:'nw',  lx:-w/2, ly:-h/2},
+    {type:'ne',  lx:w/2,  ly:-h/2},
+    {type:'se',  lx:w/2,  ly:h/2},
+    {type:'sw',  lx:-w/2, ly:h/2},
+    {type:'n',   lx:0,    ly:-h/2},
+    {type:'e',   lx:w/2,  ly:0},
+    {type:'s',   lx:0,    ly:h/2},
+    {type:'w',   lx:-w/2, ly:0},
   ];
   for (const h2 of handles) {
-    if (Math.hypot(px-h2.cx, py-h2.cy) <= _hr()*2) return h2.type;
+    const q = toWorld(h2.lx, h2.ly, layer);
+    if (Math.hypot(px-q.x, py-q.y) <= _hr()*2) return h2.type;
   }
   return null;
 }
@@ -8240,7 +8746,7 @@ function hitTestLayer(px, py) {
   // Check from top (last) to bottom (first)
   for (let i = state.layers.length-1; i >= 0; i--) {
     const l = state.layers[i];
-    if (px >= l.x && px <= l.x+l.w && py >= l.y && py <= l.y+l.h) return l;
+    if (layerContains(l, px, py)) return l;
   }
   return null;
 }
@@ -8277,12 +8783,16 @@ selectCanvas.addEventListener('mousedown', e => {
   // Check handle hit first
   if (sel) {
     const handle = hitTestHandle(x,y,sel);
-    if (handle) {
-      _interact = {type:'resize', handle, startX:x, startY:y,
-        orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}};
+    if (handle === 'rot') {
+      _interact = {type:'rotate', startX:x, startY:y, orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h,rot:sel.rotation||0}};
       return;
     }
-    if (x>=sel.x&&x<=sel.x+sel.w&&y>=sel.y&&y<=sel.y+sel.h) {
+    if (handle) {
+      _interact = {type:'resize', handle, startX:x, startY:y,
+        orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h,rot:sel.rotation||0}};
+      return;
+    }
+    if (layerContains(sel, x, y)) {
       _interact = {type:'move', startX:x, startY:y, orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}};
       return;
     }
@@ -8307,7 +8817,7 @@ selectCanvas.addEventListener('mousemove', e => {
     if (fh) { selectCanvas.style.cursor = fh.type === 'move' ? 'move' : (fh.corner === 'nw' || fh.corner === 'se' ? 'nwse-resize' : 'nesw-resize'); return; }
     if (sel) {
       const handle = hitTestHandle(x,y,sel);
-      selectCanvas.style.cursor = handle ? 'nwse-resize' : (x>=sel.x&&x<=sel.x+sel.w&&y>=sel.y&&y<=sel.y+sel.h ? 'move' : 'default');
+      selectCanvas.style.cursor = handle === 'rot' ? 'grab' : handle ? 'nwse-resize' : (layerContains(sel, x, y) ? 'move' : 'default');
     } else { selectCanvas.style.cursor = 'default'; }
     return;
   }
@@ -8321,21 +8831,29 @@ selectCanvas.addEventListener('mousemove', e => {
   if (_interact.type === 'move') {
     sel.x = _interact.orig.x + dx;
     sel.y = _interact.orig.y + dy;
+  } else if (_interact.type === 'rotate') {
+    const c = { x: _interact.orig.x + _interact.orig.w / 2, y: _interact.orig.y + _interact.orig.h / 2 };
+    let ang = Math.atan2(y - c.y, x - c.x) * 180 / Math.PI + 90;       // the knob sits above the layer: 0 deg = up
+    if (e.shiftKey) ang = Math.round(ang / 15) * 15;                    // Shift: 15-degree steps
+    ang = ((ang + 180) % 360 + 360) % 360 - 180;                        // keep within -180..180
+    sel.rotation = Math.round(ang * 10) / 10;
   } else {
-    // Resize
-    const o = _interact.orig;
-    let nx=o.x, ny=o.y, nw=o.w, nh=o.h;
-    const h2 = _interact.handle;
-    if (h2.includes('e')) nw = Math.max(20, o.w + dx);
-    if (h2.includes('s')) nh = Math.max(20, o.h + dy);
-    if (h2.includes('w')) { nx = o.x+dx; nw = Math.max(20, o.w-dx); }
-    if (h2.includes('n')) { ny = o.y+dy; nh = Math.max(20, o.h-dy); }
-    // Shift = constrain to original aspect ratio
-    if (e.shiftKey) {
-      const ar = o.w / o.h;
-      if (nw / nh > ar) { nh = nw / ar; } else { nw = nh * ar; }
+    // Resize in the layer's own axes, so it works when the layer is rotated. The opposite side/corner stays put.
+    const o = _interact.orig, h2 = _interact.handle, rad = o.rot * Math.PI / 180, cs = Math.cos(-rad), sn = Math.sin(-rad);
+    const dl = { x: dx * cs - dy * sn, y: dx * sn + dy * cs };           // drag, in the layer's axes
+    const sx = h2.includes('e') ? 1 : h2.includes('w') ? -1 : 0, sy = h2.includes('s') ? 1 : h2.includes('n') ? -1 : 0;
+    let nw = o.w, nh = o.h;
+    if (!layerLocked(sel, e.shiftKey)) {                                // free: each side on its own
+      if (sx) nw = Math.max(20, o.w + sx * dl.x);
+      if (sy) nh = Math.max(20, o.h + sy * dl.y);
+    } else {                                                            // keep proportions
+      let f = sx && sy ? Math.max((o.w + sx * dl.x) / o.w, (o.h + sy * dl.y) / o.h) : sx ? (o.w + sx * dl.x) / o.w : (o.h + sy * dl.y) / o.h;
+      f = Math.max(f, 20 / Math.min(o.w, o.h)); nw = o.w * f; nh = o.h * f;
     }
-    sel.x=nx; sel.y=ny; sel.w=nw; sel.h=nh;
+    const cl = { x: sx ? sx * (nw - o.w) / 2 : 0, y: sy ? sy * (nh - o.h) / 2 : 0 };   // centre moves half of what the side moved
+    const cr = Math.cos(rad), sr = Math.sin(rad);
+    const cx = o.x + o.w / 2 + cl.x * cr - cl.y * sr, cy = o.y + o.h / 2 + cl.x * sr + cl.y * cr;
+    sel.w = nw; sel.h = nh; sel.x = cx - nw / 2; sel.y = cy - nh / 2;
   }
   redrawLayersOnCanvas();
   drawSelectionHandles();
@@ -8372,9 +8890,14 @@ document.addEventListener('mouseup', () => {
     }
     const changed = wasInteract === 'resize'
       ? (sel.x !== orig.x || sel.y !== orig.y || sel.w !== orig.w || sel.h !== orig.h)
+      : wasInteract === 'rotate' ? (sel.rotation || 0) !== orig.rot
       : (sel.x !== orig.x || sel.y !== orig.y);
     if (changed) pushUndoSnapshot();
-    if (wasInteract === 'resize') {
+    if (wasInteract === 'rotate') {
+      renderLayerList();
+      drawSelectionHandles();
+      scheduleAutoSave();
+    } else if (wasInteract === 'resize') {
       syncLayerResizeFromCurrentSize(sel);
       renderLayerList();
       drawSelectionHandles();
@@ -9496,7 +10019,7 @@ function redrawWithBg() {
     if (layer.visible === false) return;
     ctx.save();
     ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1;
-    ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+    drawLayerImg(ctx, layer);
     ctx.restore();
   });
   drawSelectionHandles();
@@ -10348,6 +10871,9 @@ function _commitTextLayer(text) {
       slideHand: _oldLayer ? !!_oldLayer.slideHand : false,
       slideHandStyle: _oldLayer ? (_oldLayer.slideHandStyle || 'auto') : 'auto',
       camFrame: _oldLayer && _oldLayer.camFrame ? { ..._oldLayer.camFrame } : null,
+      rotation: _oldLayer ? (_oldLayer.rotation || 0) : 0, lockAspect: _oldLayer ? _oldLayer.lockAspect !== false : true,
+      fx: _oldLayer && _oldLayer.fx ? { ..._oldLayer.fx } : null,
+      exit: _oldLayer && _oldLayer.exit ? { ..._oldLayer.exit } : null,
       cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
       cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
       hasPngAlpha: true,
@@ -10436,7 +10962,7 @@ function preRender(existingBgCanvas) {
     alreadyDone.forEach(l => {
       if (!l) return;
       bc.save(); bc.globalAlpha = (l.opacity !== undefined ? l.opacity : 1);
-      bc.drawImage(l.img, l.x, l.y, l.w, l.h);
+      drawLayerImg(bc, l);
       bc.restore();
     });
   }
@@ -10448,7 +10974,7 @@ function preRender(existingBgCanvas) {
   const oc = offscreen.getContext('2d', { willReadFrequently: true });
   if (layer) {
     oc.save(); oc.globalAlpha = (layer.opacity !== undefined ? layer.opacity : 1);
-    oc.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+    drawLayerImg(oc, layer);
     oc.restore();
   } else {
     const text  = document.getElementById('text-input').value || 'Hello, World!';
@@ -10585,6 +11111,7 @@ function setProgress(ratio) {
 
 function animate() {
   if (!state.playing) return;
+  if (state._fx && (state._fx.tail || state._fx.gate)) return;      // the effects tail / exit gate has its own loop (see fxIdleFrame)
   // Parallel slot mode — tick all active slots then composite
   if (state._activeSlots && state._activeSlots.some(s => !s.done)) {
     AnimationEngine._tickAllSlots();
@@ -10621,6 +11148,7 @@ function animate() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function resetAnim() {
+  fxReset();
   state._runId = (state._runId || 0) + 1;     // cancels a group hand-over that is still waiting on its timer
   tlStopAudio(false);
   cancelAnimationFrame(state.animFrame);
@@ -10678,7 +11206,7 @@ function togglePlay() {
   if (state.playing) {
     (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
     state.slideLastTs = null;
-    animate();
+    if (!(state._fx && (state._fx.tail || state._fx.gate))) animate();     // in the effects tail / exit gate the effects loop runs on its own
   }
 }
 
@@ -10703,13 +11231,14 @@ function finishAnim() {
   const slot = state._currentSlot;
   if (slot) {
     // Bake this slot's completed result into the shared bgCanvas
-    if (state.bgCanvas) {
-      const bc = state.bgCanvas.getContext('2d');
+    const _fxCtx = fxWantsLive(slot.layer) ? fxBeginSnapshot(slot.layer) : null;
+    if (state.bgCanvas || _fxCtx) {
+      const bc = _fxCtx || state.bgCanvas.getContext('2d');      // a layer with an effect is kept live instead of baked
       if (_shouldBakeRawImage) {
         const l = slot.layer;
         if (l) {
           bc.save(); bc.globalAlpha = l.opacity ?? 1;
-          bc.drawImage(l.img, l.x, l.y, l.w, l.h);
+          drawLayerImg(bc, l);
           bc.restore();
         }
       } else {
@@ -10726,6 +11255,7 @@ function finishAnim() {
         }
       }
     }
+    if (_fxCtx) fxRegister(slot.layer);
     // Mark slot done; _tickAllSlots will detect when all slots finish
     slot.done = true;
     hctx.clearRect(0, 0, state.canvasW, state.canvasH);
@@ -10744,7 +11274,7 @@ function finishAnim() {
     if (_shouldBakeRawImage) {
       if (layer) {
         bc.save(); bc.globalAlpha = (layer.opacity !== undefined ? layer.opacity : 1);
-        bc.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        drawLayerImg(bc, layer);
         bc.restore();
       }
     } else {
@@ -11566,6 +12096,7 @@ const _cropCanvas = document.getElementById('crop-canvas');
 const _cropCtx    = _cropCanvas.getContext('2d');
 
 function activateCropTool() {
+  { const l = getSelectedLayer(); if (l && l.rotation) { showToast('Set the rotation back to 0° before cropping'); return; } }
   const layer = getSelectedLayer();
   if (!layer) { showToast('Select a layer first'); return; }
   if (state.playing) return;
@@ -11858,6 +12389,7 @@ let _slicerRectDrag  = null; // {startX,startY,cur:{x,y,w,h}}
 const SLICE_COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#e91e63'];
 
 function openSlicerModal() {
+  { const l = getSelectedLayer(); if (l && l.rotation) { showToast('Set the rotation back to 0° before slicing'); return; } }
   const layer = getSelectedLayer();
   if (!layer) { showToast('Select a layer first'); return; }
   _slicerLayer  = layer;
@@ -12275,6 +12807,9 @@ function applySlices() {
     slideHand:          !!layer.slideHand,
     slideHandStyle:     layer.slideHandStyle || 'auto',
     camFrame:           layer.camFrame ? { ...layer.camFrame } : null,
+    rotation: 0, lockAspect: layer.lockAspect !== false,
+    fx: null,
+    exit: null,
     cameraMode:         layer.cameraMode          || 'none',
     cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
   };
