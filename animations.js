@@ -1810,13 +1810,14 @@ function tickSlideIn() {
   ctx.restore();
   hctx.clearRect(0, 0, state.canvasW, state.canvasH);
   // Optional hand: grips the leading edge and pulls the image in, then lets go.
-  if (layer.slideHand && state.hand !== 'ghost' && t < 1) {
+  const slideHandStyle = layer.slideHandStyle && layer.slideHandStyle !== 'auto' ? layer.slideHandStyle : state.hand;
+  if (layer.slideHand && slideHandStyle !== 'ghost' && t < 1) {
     let tipX, tipY;
     if (state.slideDirection === 'right')       { tipX = x;               tipY = y + layer.h / 2; }
     else if (state.slideDirection === 'top')    { tipX = x + layer.w / 2; tipY = y + layer.h; }
     else if (state.slideDirection === 'bottom') { tipX = x + layer.w / 2; tipY = y; }
     else                                        { tipX = x + layer.w;     tipY = y + layer.h / 2; }
-    drawCustomHand(hctx, tipX - 35, tipY - 30, tipX, tipY, CUSTOM_HANDS[state.hand] ? state.hand : 'custom1');
+    drawCustomHand(hctx, tipX - 35, tipY - 30, tipX, tipY, CUSTOM_HANDS[slideHandStyle] ? slideHandStyle : 'custom1');
   }
   setProgress(t);
   if (t >= 1) finishAnim();

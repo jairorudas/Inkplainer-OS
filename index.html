@@ -3524,7 +3524,17 @@ input[type="number"]:focus { border-color: var(--accent); }
             <span class="toggle-label">Hand drags it in</span>
             <button class="toggle" id="slide-hand-toggle" onclick="toggleSlideHand()"></button>
           </div>
-          <div style="font-size:9px;color:var(--muted);line-height:1.4;margin-bottom:6px">Uses the hand picked in Hand Style (bottom bar).</div>
+          <div class="section-sublabel">Slide In hand</div>
+          <div class="anim-grid" id="slide-hand-grid" style="grid-template-columns:repeat(2,1fr)">
+            <div class="anim-opt selected" data-slide-hand="auto" onclick="setSlideHandStyle(this)">Same as Hand Style</div>
+            <div class="anim-opt" data-slide-hand="custom1" onclick="setSlideHandStyle(this)">Hand 1</div>
+            <div class="anim-opt" data-slide-hand="custom2" onclick="setSlideHandStyle(this)">Hand 2</div>
+            <div class="anim-opt" data-slide-hand="custom3" onclick="setSlideHandStyle(this)">Hand 3</div>
+            <div class="anim-opt" data-slide-hand="custom4" onclick="setSlideHandStyle(this)">Pen</div>
+            <div class="anim-opt" data-slide-hand="custom5" onclick="setSlideHandStyle(this)">Cartoon</div>
+            <div class="anim-opt" data-slide-hand="custom6" onclick="setSlideHandStyle(this)">Pixel Art</div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);line-height:1.4;margin:6px 0">Its own hand for Slide In; the Hand Style in the bottom bar still drives the drawing styles.</div>
           <div class="section-sublabel">Opacity transition</div>
           <div class="anim-grid anim-grid-3" id="slide-transition-grid">
             <div class="anim-opt selected" data-slide-transition="linear" onclick="setSlideTransition(this)">Linear</div>
@@ -4543,7 +4553,7 @@ function saveProject(projectId = currentProjectId) {
           slideDurationMs: layer.slideDurationMs,
           slideTransition: layer.slideTransition,
           slideHand: !!layer.slideHand,
-          slideHand: !!layer.slideHand,
+          slideHandStyle: layer.slideHandStyle || 'auto',
           cameraMode: layer.cameraMode,
           cameraDurationMs: layer.cameraDurationMs,
           camFrame: layer.camFrame || null,
@@ -4733,6 +4743,7 @@ function loadProject(projectId) {
                 slideDurationMs: layerData.slideDurationMs !== undefined ? layerData.slideDurationMs : 1200,
                 slideTransition: layerData.slideTransition || 'linear',
                 slideHand: !!layerData.slideHand,
+                slideHandStyle: layerData.slideHandStyle || 'auto',
                 cameraMode: layerData.cameraMode || 'none',
                 cameraDurationMs: layerData.cameraDurationMs ?? 1200,
                 camFrame: layerData.camFrame || null,
@@ -5191,6 +5202,7 @@ function _serializeState() {
       slideDurationMs: layer.slideDurationMs,
       slideTransition: layer.slideTransition,
       slideHand: !!layer.slideHand,
+      slideHandStyle: layer.slideHandStyle || 'auto',
       cameraMode: layer.cameraMode,
       cameraDurationMs: layer.cameraDurationMs,
       camFrame: layer.camFrame ? { ...layer.camFrame } : null,
@@ -5343,6 +5355,7 @@ function _applySnapshot(snap, label) {
           slideDurationMs: ld.slideDurationMs !== undefined ? ld.slideDurationMs : 1200,
           slideTransition: ld.slideTransition || 'linear',
           slideHand: !!ld.slideHand,
+          slideHandStyle: ld.slideHandStyle || 'auto',
           cameraMode: ld.cameraMode || 'none',
           cameraDurationMs: ld.cameraDurationMs ?? 1200,
           camFrame: ld.camFrame ? { ...ld.camFrame } : null,
@@ -5779,6 +5792,7 @@ window.addEventListener('load', () => {
       document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
         el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
       document.getElementById('slide-hand-toggle')?.classList.toggle('on', !!layer.slideHand);
+  document.querySelectorAll('#slide-hand-grid [data-slide-hand]').forEach(el => el.classList.toggle('selected', el.dataset.slideHand === (layer.slideHandStyle || 'auto')));
 
       // Auto-switch sidebar tab to match selected layer's anim
       switchSidebarTab(_OUTLINE_ANIM_MODES.has(anim) ? 'drawing' : 'animation');
@@ -6158,6 +6172,7 @@ function addLayer(img, name) {
     slideDurationMs: 1200,
     slideTransition: 'linear',
     slideHand: false,
+    slideHandStyle: 'auto',
     cameraMode: 'none',
     cameraDurationMs: 1200,
     camFrame: null,
@@ -6275,6 +6290,7 @@ function syncSidebarToLayer(id) {
   document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
     el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
   document.getElementById('slide-hand-toggle')?.classList.toggle('on', !!layer.slideHand);
+  document.querySelectorAll('#slide-hand-grid [data-slide-hand]').forEach(el => el.classList.toggle('selected', el.dataset.slideHand === (layer.slideHandStyle || 'auto')));
   // BUG FIX: sync zigzag toggle to per-layer state
   const zigzagVal = (layer.zigzag !== undefined) ? layer.zigzag : state.zigzag;
   document.getElementById('zigzag-toggle').classList.toggle('on', zigzagVal);
@@ -6331,6 +6347,13 @@ function toggleSlideHand() {
   pushUndoSnapshot(); clearActivePreset();
   layer.slideHand = !layer.slideHand;
   document.getElementById('slide-hand-toggle').classList.toggle('on', layer.slideHand);
+  scheduleAutoSave();
+}
+function setSlideHandStyle(el) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); clearActivePreset();
+  layer.slideHandStyle = el.dataset.slideHand;
+  document.querySelectorAll('#slide-hand-grid [data-slide-hand]').forEach(x => x.classList.toggle('selected', x === el));
   scheduleAutoSave();
 }
 function setSlideTransition(el) {
@@ -9240,6 +9263,7 @@ function _commitTextLayer(text) {
       slideDurationMs: _oldLayer ? (_oldLayer.slideDurationMs ?? 1200) : 1200,
       slideTransition: _oldLayer ? (_oldLayer.slideTransition || 'linear') : 'linear',
       slideHand: _oldLayer ? !!_oldLayer.slideHand : false,
+      slideHandStyle: _oldLayer ? (_oldLayer.slideHandStyle || 'auto') : 'auto',
       camFrame: _oldLayer && _oldLayer.camFrame ? { ..._oldLayer.camFrame } : null,
       cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
       cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
@@ -11130,6 +11154,7 @@ function applySlices() {
     slideDurationMs:    layer.slideDurationMs     ?? 1200,
     slideTransition:    layer.slideTransition     || 'linear',
     slideHand:          !!layer.slideHand,
+    slideHandStyle:     layer.slideHandStyle || 'auto',
     camFrame:           layer.camFrame ? { ...layer.camFrame } : null,
     cameraMode:         layer.cameraMode          || 'none',
     cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
