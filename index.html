@@ -1975,6 +1975,16 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-inspector { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--border); min-height: 32px; color: var(--muted-hi); }
 .tl-inspector input[type=range] { width: 90px; }
 .tl-inspector select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel); }
+#bottom-bar { position: relative; }
+#bb-toggle { position: absolute; top: 6px; right: 10px; z-index: 5; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-hi); border-radius: 50%; background: var(--panel); color: var(--muted-hi); cursor: pointer; padding: 0; }
+#bb-toggle:hover { color: var(--text); background: #ececec; }
+#bb-toggle svg { transition: transform .15s; }
+#bb-collapsed-bar { display: none; align-items: center; gap: 6px; width: 100%; padding: 0 12px; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-hi); cursor: pointer; user-select: none; }
+#bottom-bar.collapsed { min-height: 0; height: 32px; }
+#bottom-bar.collapsed > .bb-section { display: none; }
+#bottom-bar.collapsed #bb-collapsed-bar { display: flex; }
+#bottom-bar.collapsed #bb-toggle { top: 5px; }
+#bottom-bar.collapsed #bb-toggle svg { transform: rotate(180deg); }
 #bottom-bar {
   flex-shrink: 0;
   background: var(--sidebar);
@@ -4179,6 +4189,10 @@ input[type="number"]:focus { border-color: var(--accent); }
 
   <!-- ════════ BOTTOM BAR ════════ -->
   <div id="bottom-bar">
+    <button id="bb-toggle" onclick="toggleBottomBar()" title="Minimize / expand hand, speed and canvas settings" aria-label="Toggle bottom settings">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <div id="bb-collapsed-bar" onclick="toggleBottomBar()">Hand style · Speed · Canvas size</div>
 
     <!-- Hand Style -->
     <div class="bb-section" style="flex:2;min-width:0;">
@@ -7086,6 +7100,20 @@ function toggleSidebar(force) {
   setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 230);
 }
 try { if (localStorage.getItem('sidebarCollapsed') === '1') document.body.classList.add('sidebar-collapsed'); } catch (e) {}
+
+function toggleBottomBar(force) {
+  const bar = document.getElementById('bottom-bar');
+  const collapsed = force !== undefined ? force : !bar.classList.contains('collapsed');
+  bar.classList.toggle('collapsed', collapsed);
+  try { localStorage.setItem('bottomBarCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 30);
+}
+try {
+  if (localStorage.getItem('bottomBarCollapsed') === '1') {
+    document.getElementById('bottom-bar').classList.add('collapsed');
+    setTimeout(() => { try { fitCanvas(); } catch (e) {} }, 400);   // re-fit once the layout has settled
+  }
+} catch (e) {}
 
 function toggleRightPanel(force) {
   const collapsed = force !== undefined ? force : !document.body.classList.contains('rightpanel-collapsed');
