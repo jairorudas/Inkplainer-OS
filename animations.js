@@ -3470,7 +3470,7 @@ function finishAnim() {
   if (slot) {
     // Bake this slot's completed result into the shared bgCanvas. A layer with an animate.css effect is
     // baked into its own small canvas instead and kept live (see fxRegister in index.html).
-    const _fxCtx = (slot.layer && slot.layer.fx && typeof fxSpec === 'function' && fxSpec(slot.layer.fx.name)) ? fxBeginSnapshot(slot.layer) : null;
+    const _fxCtx = (typeof fxWantsLive === 'function' && fxWantsLive(slot.layer)) ? fxBeginSnapshot(slot.layer) : null;
     if (state.bgCanvas || _fxCtx) {
       const bc = _fxCtx || state.bgCanvas.getContext('2d');
       if (_shouldBakeRawImage) {
