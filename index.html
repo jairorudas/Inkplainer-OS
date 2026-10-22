@@ -4198,7 +4198,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <button class="tl-btn" onclick="tlAddTrack()">+ Track</button>
       <button class="tl-btn" onclick="tlOpenR2()" title="Pick narration from the narration/ folder of your R2 bucket">R2 narration</button>
       <button class="tl-btn tl-icon-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)" aria-label="Mute preview"></button>
-      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="tlSetZoom(+this.value)"></div>
+      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="updateRangeFill(this);tlSetZoom(+this.value)"></div>
     </div>
     <div class="tl-body">
       <div class="tl-labels" id="tl-labels"></div>
@@ -7336,7 +7336,8 @@ function tlInspector() {
   if (!c) { box.textContent = TL.tracks.some(t => t.clips.length) ? 'Select an audio clip to set its volume and speed.' : 'Add narration with “+ Add audio”. Drag clips to place them, drag their edges to cut where they end.'; return; }
   box.innerHTML = '';
   const name = document.createElement('b'); name.textContent = c.name; name.style.maxWidth = '180px'; name.style.overflow = 'hidden'; name.style.textOverflow = 'ellipsis'; name.style.whiteSpace = 'nowrap';
-  const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; }; vol.onchange = tlChanged;
+  const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; updateRangeFill(vol); }; vol.onchange = tlChanged;
+  updateRangeFill(vol);
   const vl = document.createElement('span'); vl.textContent = vol.value + '%';
   const rate = document.createElement('select');
   [0.75, 0.9, 1, 1.1, 1.25].forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r + '×'; if (r === c.rate) o.selected = true; rate.appendChild(o); });
