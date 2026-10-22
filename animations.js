@@ -1789,11 +1789,14 @@ function tickSlideIn() {
   state.slideLastTs = now;
   const t = Math.min(1, state.slideElapsedMs / state.slideDurationMs);
   const ease = 1 - Math.pow(1 - t, 3);
+  // Enter from just outside the camera's current view (the whole canvas when
+  // the camera is not zoomed), so a zoomed-in shot still sees the slide happen.
+  const view = typeof _cameraView === 'function' ? _cameraView() : { x: 0, y: 0, w: state.canvasW, h: state.canvasH };
   let startX = layer.x, startY = layer.y;
-  if (state.slideDirection === 'right') startX = state.canvasW;
-  else if (state.slideDirection === 'top') startY = -layer.h;
-  else if (state.slideDirection === 'bottom') startY = state.canvasH;
-  else startX = -layer.w;
+  if (state.slideDirection === 'right') startX = view.x + view.w;
+  else if (state.slideDirection === 'top') startY = view.y - layer.h;
+  else if (state.slideDirection === 'bottom') startY = view.y + view.h;
+  else startX = view.x - layer.w;
   const x = startX + (layer.x - startX) * ease;
   const y = startY + (layer.y - startY) * ease;
   const baseOpacity = layer.opacity ?? 1;
@@ -1806,6 +1809,15 @@ function tickSlideIn() {
   ctx.drawImage(layer.img, x, y, layer.w, layer.h);
   ctx.restore();
   hctx.clearRect(0, 0, state.canvasW, state.canvasH);
+  // Optional hand: grips the leading edge and pulls the image in, then lets go.
+  if (layer.slideHand && state.hand !== 'ghost' && t < 1) {
+    let tipX, tipY;
+    if (state.slideDirection === 'right')       { tipX = x;               tipY = y + layer.h / 2; }
+    else if (state.slideDirection === 'top')    { tipX = x + layer.w / 2; tipY = y + layer.h; }
+    else if (state.slideDirection === 'bottom') { tipX = x + layer.w / 2; tipY = y; }
+    else                                        { tipX = x + layer.w;     tipY = y + layer.h / 2; }
+    drawCustomHand(hctx, tipX - 35, tipY - 30, tipX, tipY, CUSTOM_HANDS[state.hand] ? state.hand : 'custom1');
+  }
   setProgress(t);
   if (t >= 1) finishAnim();
 }

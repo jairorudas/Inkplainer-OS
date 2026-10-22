@@ -3520,6 +3520,11 @@ input[type="number"]:focus { border-color: var(--accent); }
             <input type="range" id="slide-duration-slider" min="0.1" max="10" step="0.1" value="1.2" oninput="setSlideDuration(this.value)">
             <span class="slider-val" id="slide-duration-val">1.2s</span>
           </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Hand drags it in</span>
+            <button class="toggle" id="slide-hand-toggle" onclick="toggleSlideHand()"></button>
+          </div>
+          <div style="font-size:9px;color:var(--muted);line-height:1.4;margin-bottom:6px">Uses the hand picked in Hand Style (bottom bar).</div>
           <div class="section-sublabel">Opacity transition</div>
           <div class="anim-grid anim-grid-3" id="slide-transition-grid">
             <div class="anim-opt selected" data-slide-transition="linear" onclick="setSlideTransition(this)">Linear</div>
@@ -4537,6 +4542,8 @@ function saveProject(projectId = currentProjectId) {
           slideDirection: layer.slideDirection,
           slideDurationMs: layer.slideDurationMs,
           slideTransition: layer.slideTransition,
+          slideHand: !!layer.slideHand,
+          slideHand: !!layer.slideHand,
           cameraMode: layer.cameraMode,
           cameraDurationMs: layer.cameraDurationMs,
           camFrame: layer.camFrame || null,
@@ -4725,6 +4732,7 @@ function loadProject(projectId) {
                 slideDirection: layerData.slideDirection || 'left',
                 slideDurationMs: layerData.slideDurationMs !== undefined ? layerData.slideDurationMs : 1200,
                 slideTransition: layerData.slideTransition || 'linear',
+                slideHand: !!layerData.slideHand,
                 cameraMode: layerData.cameraMode || 'none',
                 cameraDurationMs: layerData.cameraDurationMs ?? 1200,
                 camFrame: layerData.camFrame || null,
@@ -5182,6 +5190,7 @@ function _serializeState() {
       slideDirection: layer.slideDirection,
       slideDurationMs: layer.slideDurationMs,
       slideTransition: layer.slideTransition,
+      slideHand: !!layer.slideHand,
       cameraMode: layer.cameraMode,
       cameraDurationMs: layer.cameraDurationMs,
       camFrame: layer.camFrame ? { ...layer.camFrame } : null,
@@ -5333,6 +5342,7 @@ function _applySnapshot(snap, label) {
           slideDirection: ld.slideDirection || 'left',
           slideDurationMs: ld.slideDurationMs !== undefined ? ld.slideDurationMs : 1200,
           slideTransition: ld.slideTransition || 'linear',
+          slideHand: !!ld.slideHand,
           cameraMode: ld.cameraMode || 'none',
           cameraDurationMs: ld.cameraDurationMs ?? 1200,
           camFrame: ld.camFrame ? { ...ld.camFrame } : null,
@@ -5756,6 +5766,19 @@ window.addEventListener('load', () => {
       setSlider('hand-speed-slider', 'hand-speed-val', layer.handSpeed  ?? 6);
       setSlider('tile-slider',       'tile-val',       layer.chunks     ?? 30);
       setSlider('spec-tile-slider',  'spec-tile-val',  layer.specChunks ?? 35);
+      // Slide In controls (kept in step with the selected layer)
+      const slideDurMs = Math.max(100, layer.slideDurationMs ?? 1200);
+      const slideDurEl = document.getElementById('slide-duration-slider');
+      if (slideDurEl) {
+        slideDurEl.value = slideDurMs / 1000;
+        updateSliderFill(slideDurEl);
+        document.getElementById('slide-duration-val').textContent = (slideDurMs / 1000).toFixed(1) + 's';
+      }
+      document.querySelectorAll('#slide-direction-grid [data-slide-direction]').forEach(el =>
+        el.classList.toggle('selected', el.dataset.slideDirection === (layer.slideDirection || 'left')));
+      document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
+        el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
+      document.getElementById('slide-hand-toggle')?.classList.toggle('on', !!layer.slideHand);
 
       // Auto-switch sidebar tab to match selected layer's anim
       switchSidebarTab(_OUTLINE_ANIM_MODES.has(anim) ? 'drawing' : 'animation');
@@ -6134,6 +6157,7 @@ function addLayer(img, name) {
     slideDirection: 'left',
     slideDurationMs: 1200,
     slideTransition: 'linear',
+    slideHand: false,
     cameraMode: 'none',
     cameraDurationMs: 1200,
     camFrame: null,
@@ -6250,6 +6274,7 @@ function syncSidebarToLayer(id) {
     el.classList.toggle('selected', el.dataset.slideDirection === (layer.slideDirection || 'left')));
   document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
     el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
+  document.getElementById('slide-hand-toggle')?.classList.toggle('on', !!layer.slideHand);
   // BUG FIX: sync zigzag toggle to per-layer state
   const zigzagVal = (layer.zigzag !== undefined) ? layer.zigzag : state.zigzag;
   document.getElementById('zigzag-toggle').classList.toggle('on', zigzagVal);
@@ -6300,6 +6325,13 @@ function setSlideDuration(seconds) {
   scheduleAutoSave();
   clearTimeout(layer._slideDurationUndoTimer);
   layer._slideDurationUndoTimer = setTimeout(() => { delete layer._slideDurationUndoPending; delete layer._slideDurationUndoTimer; }, 300);
+}
+function toggleSlideHand() {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); clearActivePreset();
+  layer.slideHand = !layer.slideHand;
+  document.getElementById('slide-hand-toggle').classList.toggle('on', layer.slideHand);
+  scheduleAutoSave();
 }
 function setSlideTransition(el) {
   const layer = getSelectedLayer(); if (!layer) return;
@@ -8647,7 +8679,8 @@ function selectBgPreset(el, type, val) {
       document.getElementById('bg-color-input').value = val === 'white' ? '#ffffff' : val;
     }
   } else {
-    state.canvasBg = { type:'gradient', val, key: el.dataset.bgKey };
+    // el is null when called from an undo/restore; keep the restored key then.
+    state.canvasBg = { type:'gradient', val, key: el ? el.dataset.bgKey : state.canvasBg?.key };
   }
   redrawWithBg();
   scheduleAutoSave();
@@ -9206,6 +9239,7 @@ function _commitTextLayer(text) {
       slideDirection: _oldLayer ? (_oldLayer.slideDirection || 'left') : 'left',
       slideDurationMs: _oldLayer ? (_oldLayer.slideDurationMs ?? 1200) : 1200,
       slideTransition: _oldLayer ? (_oldLayer.slideTransition || 'linear') : 'linear',
+      slideHand: _oldLayer ? !!_oldLayer.slideHand : false,
       camFrame: _oldLayer && _oldLayer.camFrame ? { ..._oldLayer.camFrame } : null,
       cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
       cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
@@ -11095,6 +11129,7 @@ function applySlices() {
     slideDirection:     layer.slideDirection      || 'left',
     slideDurationMs:    layer.slideDurationMs     ?? 1200,
     slideTransition:    layer.slideTransition     || 'linear',
+    slideHand:          !!layer.slideHand,
     camFrame:           layer.camFrame ? { ...layer.camFrame } : null,
     cameraMode:         layer.cameraMode          || 'none',
     cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
