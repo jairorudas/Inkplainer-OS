@@ -4852,6 +4852,7 @@ function loadProject(projectId) {
       
       // Restore background and update UI
       syncBgUI();
+      fitCanvas();
       redrawWithBg();
       
       // Clear layer list UI
@@ -5442,6 +5443,7 @@ function _applySnapshot(snap, label) {
 
   // Restore background
   syncBgUI();
+  fitCanvas();
   redrawWithBg();
 
   // Sync global UI
@@ -6175,6 +6177,22 @@ function initCanvas(w,h) {
   
   redrawLayersOnCanvas();
 }
+// A 1-px grid line shown at a fractional scale lands on a different sub-pixel phase for every line, so some
+// look thick and some faint (the grid looks uneven). When a whole number of screen pixels per grid cell is
+// within 2.5 % of the fit scale (the margin around the canvas absorbs the small growth), use it: every line
+// then looks the same. Only the preview changes; the canvas itself, and every export, keep the exact grid.
+function _snapScaleToGrid(s) {
+  const bg = state.canvasBg;
+  if (!bg || bg.type !== 'grid') return s;
+  const dpr = window.devicePixelRatio || 1, cell = Math.max(4, (bg.size || 40) * (videoSize()[0] / 1280));
+  const target = s * dpr * cell;
+  let best = null;
+  for (const n of [Math.floor(target), Math.ceil(target)]) {
+    if (n < 2 || Math.abs(n / target - 1) > 0.025) continue;
+    if (best === null || Math.abs(n - target) < Math.abs(best - target)) best = n;
+  }
+  return best === null ? s : best / (dpr * cell);
+}
 function fitCanvas() {
   const canvasArea = document.getElementById('canvas-area');
   if (!canvasArea) return;
@@ -6184,7 +6202,7 @@ function fitCanvas() {
   const safeMargin = 24;
   const availableW = Math.max(160, canvasArea.clientWidth - padX - safeMargin);
   const availableH = Math.max(160, canvasArea.clientHeight - padY - safeMargin);
-  const s = Math.min(availableW/state.canvasW, availableH/state.canvasH, 1);
+  const s = _snapScaleToGrid(Math.min(availableW/state.canvasW, availableH/state.canvasH, 1));
   const sw=(state.canvasW*s)+'px', sh=(state.canvasH*s)+'px';
   canvas.style.width=sw; canvas.style.height=sh;
   handCanvas.style.width=sw; handCanvas.style.height=sh;
@@ -9370,7 +9388,7 @@ function onBgGridChange() {
   clearTimeout(_gridUndoTimer); _gridUndoTimer = setTimeout(() => { _gridUndoTimer = null; }, 600);
   const v = id => document.getElementById(id).value;
   state.canvasBg = { type: 'grid', val: v('bg-grid-base'), line: v('bg-grid-line'), size: +v('bg-grid-size'), weight: +v('bg-grid-weight') };
-  syncBgUI(); redrawWithBg(); scheduleAutoSave();
+  syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
 }
 function selectBgPreset(el, type, val) {
   // Skip snapshot when called internally from _applySnapshot restore
@@ -9389,6 +9407,7 @@ function selectBgPreset(el, type, val) {
     state.canvasBg = { type:'gradient', val, key: el ? el.dataset.bgKey : state.canvasBg?.key };
   }
   syncBgUI();
+  fitCanvas();
   redrawWithBg();
   scheduleAutoSave();
 }
@@ -9399,6 +9418,7 @@ function onBgColorInput(val) {
   document.getElementById('bg-custom-swatch').style.background = val;
   state.canvasBg = { type:'custom', val };
   syncBgUI();
+  fitCanvas();
   redrawWithBg();
   scheduleAutoSave();
 }
