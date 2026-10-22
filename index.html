@@ -3525,6 +3525,33 @@ input[type="number"]:focus { border-color: var(--accent); }
       </div>
     </div>
 
+    <!-- CARD: Camera -->
+    <div class="card">
+      <div class="card-header" onclick="toggleCard(this)">
+        <div class="card-header-label">Camera</div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">Zoom the view when this layer's turn starts. "Keep" leaves the camera where it is.</div>
+        <div class="section-sublabel">Focus</div>
+        <div class="anim-grid" id="camera-mode-grid" style="grid-template-columns:repeat(2,1fr)">
+          <div class="anim-opt selected" data-camera-mode="none" onclick="setCameraMode(this)">Keep</div>
+          <div class="anim-opt" data-camera-mode="layer" onclick="setCameraMode(this)">This layer</div>
+          <div class="anim-opt" data-camera-mode="group" onclick="setCameraMode(this)">Layer group</div>
+          <div class="anim-opt" data-camera-mode="full" onclick="setCameraMode(this)">Full view</div>
+        </div>
+        <div class="section-sublabel">Move duration</div>
+        <div class="slider-row">
+          <input type="range" id="camera-duration-slider" min="0.3" max="4" step="0.1" value="1.2" oninput="setCameraDuration(this.value)">
+          <span class="slider-val" id="camera-duration-val">1.2s</span>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Zoom out at the end</span>
+          <button class="toggle on" id="camera-end-toggle" onclick="toggleCameraEnd()"></button>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /sidebar-pane-animation -->
 
   <!-- ════ TAB: DRAWING ════ -->
@@ -4457,6 +4484,8 @@ function saveProject(projectId = currentProjectId) {
           slideDirection: layer.slideDirection,
           slideDurationMs: layer.slideDurationMs,
           slideTransition: layer.slideTransition,
+          cameraMode: layer.cameraMode,
+          cameraDurationMs: layer.cameraDurationMs,
           // Text layer properties
           kind: layer.kind,
           textProps: layer.textProps,
@@ -4464,6 +4493,7 @@ function saveProject(projectId = currentProjectId) {
         
         selectedLayerId: state.selectedLayerId,
         groups: state.groups || [],
+        cameraEndFull: state.cameraEndFull !== false,
         
         // Animation settings
         animStyle: state.animStyle,
@@ -4552,6 +4582,8 @@ function loadProject(projectId) {
       state.colorStyle = savedState.colorStyle || 'filled';
       
       state.groups = savedState.groups || [];
+      state.cameraEndFull = savedState.cameraEndFull !== false;
+      syncCameraEndToggle();
       
       // Initialize canvas with restored size
       initCanvas(state.canvasW, state.canvasH);
@@ -4638,6 +4670,8 @@ function loadProject(projectId) {
                 slideDirection: layerData.slideDirection || 'left',
                 slideDurationMs: layerData.slideDurationMs !== undefined ? layerData.slideDurationMs : 1200,
                 slideTransition: layerData.slideTransition || 'linear',
+                cameraMode: layerData.cameraMode || 'none',
+                cameraDurationMs: layerData.cameraDurationMs ?? 1200,
                 // Text layer properties
                 kind: layerData.kind || null,
                 textProps: layerData.textProps || null,
@@ -5054,6 +5088,7 @@ function _serializeState() {
     colorStyle: state.colorStyle,
     selectedLayerId: state.selectedLayerId,
     groups: JSON.parse(JSON.stringify(state.groups || [])),
+    cameraEndFull: state.cameraEndFull !== false,
     layers: (state.layers || []).map(layer => ({
       id: layer.id,
       name: layer.name,
@@ -5088,6 +5123,8 @@ function _serializeState() {
       slideDirection: layer.slideDirection,
       slideDurationMs: layer.slideDurationMs,
       slideTransition: layer.slideTransition,
+      cameraMode: layer.cameraMode,
+      cameraDurationMs: layer.cameraDurationMs,
     })),
   };
 }
@@ -5135,6 +5172,8 @@ function _applySnapshot(snap, label) {
   state.layers = [];
   state.selectedLayerId = null;
   state.groups = JSON.parse(JSON.stringify(snap.groups || []));
+  state.cameraEndFull = snap.cameraEndFull !== false;
+  syncCameraEndToggle();
 
   // Restore scalar settings
   state.canvasW          = snap.canvasW || 1280;
@@ -5232,6 +5271,8 @@ function _applySnapshot(snap, label) {
           slideDirection: ld.slideDirection || 'left',
           slideDurationMs: ld.slideDurationMs !== undefined ? ld.slideDurationMs : 1200,
           slideTransition: ld.slideTransition || 'linear',
+          cameraMode: ld.cameraMode || 'none',
+          cameraDurationMs: ld.cameraDurationMs ?? 1200,
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
@@ -5750,6 +5791,7 @@ const state = {
   selectedLayerId: null,
   activeLayerIndex: 0,   // which layer is currently being animated in sequence
   groups: [],            // [{id, name, collapsed, visible, layerIds:[]}]
+  cameraEndFull: true,   // zoom back out to the full scene after the last group
   _groupIdCounter: 0,
   // ─── PRESETS ───
   activePresetId: null,  // id of last applied preset; cleared when any setting is changed manually
@@ -5765,6 +5807,7 @@ const handCanvas = document.createElement('canvas');
 handCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
 canvas.parentNode.insertBefore(handCanvas, canvas.nextSibling);
 const hctx = handCanvas.getContext('2d');
+const _cam = { x: 0, y: 0, w: null, raf: 0, busy: false }; // camera view, see CAMERA section
 const selectCanvas = document.getElementById('select-canvas');
 const sctx = selectCanvas.getContext('2d');
 let offscreen = null;
@@ -5859,6 +5902,7 @@ function fitCanvas() {
   canvas.style.width=sw; canvas.style.height=sh;
   handCanvas.style.width=sw; handCanvas.style.height=sh;
   selectCanvas.style.width=sw; selectCanvas.style.height=sh;
+  _cameraApply();
 }
 // ─── BACKGROUND GRADIENTS (drawn on canvas) ───
 const BG_GRADIENTS = {
@@ -6006,6 +6050,8 @@ function addLayer(img, name) {
     slideDirection: 'left',
     slideDurationMs: 1200,
     slideTransition: 'linear',
+    cameraMode: 'none',
+    cameraDurationMs: 1200,
     hasPngAlpha };
   state.layers.push(layer);
   
@@ -6118,6 +6164,14 @@ function syncSidebarToLayer(id) {
     el.classList.toggle('selected', el.dataset.slideDirection === (layer.slideDirection || 'left')));
   document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
     el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
+  document.querySelectorAll('#camera-mode-grid [data-camera-mode]').forEach(el =>
+    el.classList.toggle('selected', el.dataset.cameraMode === (layer.cameraMode || 'none')));
+  const camDur = document.getElementById('camera-duration-slider');
+  if (camDur) {
+    camDur.value = (layer.cameraDurationMs ?? 1200) / 1000;
+    updateSliderFill(camDur);
+    document.getElementById('camera-duration-val').textContent = ((layer.cameraDurationMs ?? 1200) / 1000).toFixed(1) + 's';
+  }
   // BUG FIX: sync zigzag toggle to per-layer state
   const zigzagVal = (layer.zigzag !== undefined) ? layer.zigzag : state.zigzag;
   document.getElementById('zigzag-toggle').classList.toggle('on', zigzagVal);
@@ -6178,6 +6232,133 @@ function setSlideTransition(el) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CAMERA — zoom / pan between layers or layer groups (VideoScribe-style)
+// The scene is always rendered at full size; the camera only changes which
+// part of it is shown (CSS transform on screen, source rect when exporting).
+// ═══════════════════════════════════════════════════════════════════════════
+function _cameraView() {
+  const w = _cam.w ?? state.canvasW;
+  return { x: _cam.x, y: _cam.y, w, h: w * state.canvasH / state.canvasW };
+}
+function _cameraZoomed() { return (_cam.w ?? state.canvasW) < state.canvasW - 0.5; }
+
+function _cameraApply() {
+  const els = [canvas, handCanvas, selectCanvas, document.getElementById('outline-overlay')];
+  if (!_cameraZoomed()) {
+    els.forEach(el => { if (el) { el.style.transform = ''; el.style.transformOrigin = ''; } });
+    return;
+  }
+  const v = _cameraView();
+  const s = (parseFloat(canvas.style.width) || state.canvasW) / state.canvasW; // css px per canvas px
+  const k = state.canvasW / v.w;
+  els.forEach(el => {
+    if (!el) return;
+    el.style.transformOrigin = '0 0';
+    el.style.transform = `translate(${-v.x * s * k}px, ${-v.y * s * k}px) scale(${k})`;
+  });
+}
+
+// Draws the camera's current view into a target context (video export frames).
+function _cameraDrawTo(tctx, W, H, includeHand) {
+  const v = _cameraView();
+  tctx.drawImage(canvas, v.x, v.y, v.w, v.h, 0, 0, W, H);
+  if (includeHand) tctx.drawImage(handCanvas, v.x, v.y, v.w, v.h, 0, 0, W, H);
+}
+
+function cameraReset() {
+  cancelAnimationFrame(_cam.raf);
+  _cam.x = 0; _cam.y = 0; _cam.w = null; _cam.busy = false;
+  _cameraApply();
+}
+
+// Fits a canvas-space box into the frame (same aspect as the canvas) with padding.
+function _cameraFit(box) {
+  const aspect = state.canvasW / state.canvasH, pad = 0.08;
+  let w = Math.max(box.w * (1 + 2 * pad), box.h * (1 + 2 * pad) * aspect);
+  w = Math.min(Math.max(w, state.canvasW * 0.1), state.canvasW);
+  const h = w / aspect;
+  const x = Math.min(Math.max(box.x + box.w / 2 - w / 2, 0), state.canvasW - w);
+  const y = Math.min(Math.max(box.y + box.h / 2 - h / 2, 0), state.canvasH - h);
+  return { x, y, w };
+}
+
+function _cameraMoveTo(target, durMs, onDone) {
+  cancelAnimationFrame(_cam.raf);
+  const from = { x: _cam.x, y: _cam.y, w: _cam.w ?? state.canvasW };
+  const near = (a, b) => Math.abs(a - b) < 0.5;
+  if (near(from.x, target.x) && near(from.y, target.y) && near(from.w, target.w)) {
+    _cam.busy = false;
+    if (onDone) onDone();
+    return;
+  }
+  _cam.busy = true;
+  const t0 = performance.now();
+  const frame = now => {
+    const t = Math.min(1, (now - t0) / Math.max(1, durMs));
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; // ease in-out cubic
+    _cam.x = from.x + (target.x - from.x) * e;
+    _cam.y = from.y + (target.y - from.y) * e;
+    _cam.w = from.w + (target.w - from.w) * e;
+    _cameraApply();
+    if (t < 1) { _cam.raf = requestAnimationFrame(frame); return; }
+    _cam.busy = false;
+    if (_cam.w >= state.canvasW - 0.5) _cam.w = null;
+    _cameraApply();
+    if (onDone) onDone();
+  };
+  _cam.raf = requestAnimationFrame(frame);
+}
+
+// Camera target for a set of layers that animate together, or null to keep the view.
+function _cameraTargetForGroup(group) {
+  const focus = group.filter(l => (l.cameraMode || 'none') !== 'none');
+  if (!focus.length) return null;
+  const durMs = Math.max(...focus.map(l => l.cameraDurationMs ?? 1200));
+  if (focus.some(l => l.cameraMode === 'full')) {
+    return { target: { x: 0, y: 0, w: state.canvasW }, durMs };
+  }
+  const boxes = [];
+  focus.forEach(l => {
+    const grp = l.cameraMode === 'group' && l.groupId ? state.groups.find(g => g.id === l.groupId) : null;
+    const members = grp ? grp.layerIds.map(getLayerById).filter(m => m && m.visible !== false) : [l];
+    members.forEach(m => boxes.push(m));
+  });
+  const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
+  const x1 = Math.max(...boxes.map(b => b.x + b.w)), y1 = Math.max(...boxes.map(b => b.y + b.h));
+  return { target: _cameraFit({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), durMs };
+}
+
+function setCameraMode(el) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); clearActivePreset();
+  layer.cameraMode = el.dataset.cameraMode;
+  document.querySelectorAll('#camera-mode-grid [data-camera-mode]').forEach(x => x.classList.toggle('selected', x === el));
+  if (layer.cameraMode === 'group' && !layer.groupId) showToast('Add this layer to a group to zoom on the whole group', el);
+  scheduleAutoSave();
+}
+function setCameraDuration(seconds) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  const value = Math.max(0.3, Math.min(4, Number(seconds) || 1.2));
+  layer.cameraDurationMs = Math.round(value * 1000);
+  document.getElementById('camera-duration-val').textContent = value.toFixed(1) + 's';
+  updateSliderFill(document.getElementById('camera-duration-slider'));
+  scheduleAutoSave();
+}
+function toggleCameraEnd() {
+  pushUndoSnapshot();
+  state.cameraEndFull = !(state.cameraEndFull !== false);
+  syncCameraEndToggle();
+  scheduleAutoSave();
+}
+function syncCameraEndToggle() {
+  document.getElementById('camera-end-toggle')?.classList.toggle('on', state.cameraEndFull !== false);
+}
+// Editing happens in full-scene coordinates, so drop any zoom on a canvas click.
+document.getElementById('canvas-wrapper').addEventListener('pointerdown', () => {
+  if (_cameraZoomed() || _cam.busy) cameraReset();
+}, true);
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ANIMATION GENERATION & ORCHESTRATION
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -6235,6 +6416,7 @@ function _generateNow() {
   state._revealFinalCanvas = null;
   state._dissolveMap   = null;
   state._animProgress  = 0;
+  cameraReset();
   // Reset the hand-glide smoothing position (see drawHand) so a fresh run
   // never tries to glide the hand in from wherever the last run left it.
   state._handGX = null;
@@ -6378,10 +6560,14 @@ function _runGroupAt(gpos) {
   document.getElementById('play-pause-btn').disabled = false;
   document.getElementById('done-badge').classList.remove('show');
   setProgress(0);
-  startAnim();
+  // Camera moves to this group's focus first, then the drawing starts.
+  const cam = _cameraTargetForGroup(group);
+  if (cam) _cameraMoveTo(cam.target, cam.durMs, () => { if (!state.playing && state._groupPos === gpos) startAnim(); });
+  else startAnim();
 }
 
 function _allLayersDone() {
+  if (_cameraZoomed() && state.cameraEndFull !== false) _cameraMoveTo({ x: 0, y: 0, w: state.canvasW }, 1000);
   state._activeSlots  = [];
   state._currentSlot  = null;
   state._slotMode     = false;
@@ -8642,6 +8828,8 @@ function _commitTextLayer(text) {
       slideDirection: _oldLayer ? (_oldLayer.slideDirection || 'left') : 'left',
       slideDurationMs: _oldLayer ? (_oldLayer.slideDurationMs ?? 1200) : 1200,
       slideTransition: _oldLayer ? (_oldLayer.slideTransition || 'linear') : 'linear',
+      cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
+      cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
       hasPngAlpha: true,
       // Text metadata for re-editing
       kind:            'text',
@@ -9515,9 +9703,7 @@ function recordWebM(progressText, progressBar) {
       (function syncLoop() {
         if (!state.recording) return;
         rctx.clearRect(0, 0, state.canvasW, state.canvasH);
-        const mainCanvas = document.getElementById('main-canvas');
-        rctx.drawImage(mainCanvas, 0, 0);
-        rctx.drawImage(handCanvas, 0, 0);
+        _cameraDrawTo(rctx, state.canvasW, state.canvasH, true);
         requestAnimationFrame(syncLoop);
       })();
       
@@ -9669,8 +9855,7 @@ function recordMP4(progressText, progressBar) {
 
         // Draw at full even-pixel dimensions
         rctx.clearRect(0, 0, W, H);
-        rctx.drawImage(mainCvs,   0, 0, state.canvasW, state.canvasH, 0, 0, W, H);
-        rctx.drawImage(handCanvas, 0, 0, state.canvasW, state.canvasH, 0, 0, W, H);
+        _cameraDrawTo(rctx, W, H, true);
 
         const ts       = Math.round((frameCount / FPS) * 1_000_000); // microseconds
         const duration = Math.round(1_000_000 / FPS);
@@ -9731,7 +9916,7 @@ function recordMP4(progressText, progressBar) {
 }
 
 function isExportAnimationComplete() {
-  if (!state.done) return false;
+  if (!state.done || _cam.busy) return false;
   const groups = state._animGroups;
   if (!groups || !groups.length) return !!state.done;
   const groupPos = Number.isFinite(state._groupPos) ? state._groupPos : 0;
@@ -10528,6 +10713,8 @@ function applySlices() {
     slideDirection:     layer.slideDirection      || 'left',
     slideDurationMs:    layer.slideDurationMs     ?? 1200,
     slideTransition:    layer.slideTransition     || 'linear',
+    cameraMode:         layer.cameraMode          || 'none',
+    cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
   };
 
   const origIdx = state.layers.indexOf(layer);
