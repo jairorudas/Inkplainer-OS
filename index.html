@@ -5393,6 +5393,12 @@ function _serializeState() {
       origImageDataURL: layer._origImg ? getImageDataURL(layer._origImg) : null,
       origX: layer._origX, origY: layer._origY,
       origW: layer._origW, origH: layer._origH,
+      bgPrev: layer._bgPrev ? {
+        imageDataURL: getImageDataURL(layer._bgPrev.img),
+        origImageDataURL: layer._bgPrev.origImg ? getImageDataURL(layer._bgPrev.origImg) : null,
+        origX: layer._bgPrev.origX, origY: layer._bgPrev.origY,
+        origW: layer._bgPrev.origW, origH: layer._bgPrev.origH,
+      } : null,
       x: layer.x, y: layer.y, w: layer.w, h: layer.h,
       baseW: layer.baseW, baseH: layer.baseH,
       resizePct: layer.resizePct,
@@ -5545,6 +5551,8 @@ function _applySnapshot(snap, label) {
 
     loadImg(ld.imageDataURL, (img) => {
       loadImg(ld.origImageDataURL, (origImg) => {
+       loadImg(ld.bgPrev && ld.bgPrev.imageDataURL, (bgImg) => {
+        loadImg(ld.bgPrev && ld.bgPrev.origImageDataURL, (bgOrigImg) => {
         const layer = {
           id: restoredLayerIds[idx],
           name: ld.name,
@@ -5587,6 +5595,9 @@ function _applySnapshot(snap, label) {
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
+          _bgPrev: bgImg ? { img: bgImg, origImg: bgOrigImg || undefined,
+            origX: ld.bgPrev.origX, origY: ld.bgPrev.origY,
+            origW: ld.bgPrev.origW, origH: ld.bgPrev.origH } : undefined,
         };
         restoredLayers[idx] = layer;
         loaded++;
@@ -5606,6 +5617,8 @@ function _applySnapshot(snap, label) {
           scheduleAutoSave();
           _syncUndoUI();
         }
+        });
+       });
       });
     });
   });
@@ -8281,6 +8294,12 @@ function _buildLayerItem(layer) {
           oninput="event.stopPropagation();updateRangeFill(this);setLayerOpacity(${layer.id},+this.value/100);this.closest('div').querySelector('.op-val').textContent=this.value+'%'">
         <span class="op-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${opPct}%</span>
       </div>
+      <div class="section-label" style="margin-top:2px">Background</div>
+      <div style="display:flex;gap:6px;margin-bottom:4px" onclick="event.stopPropagation()">
+        <div class="anim-opt" style="flex:1;text-align:center${_bgBusy ? ';opacity:.5;pointer-events:none' : ''}" onclick="removeLayerBackground(${layer.id})" title="Cut out the subject with an in-browser AI model (runs on your device, full image resolution)">✂ Remove background</div>
+        ${layer._bgPrev ? `<div class="anim-opt" style="flex:1;text-align:center${_bgBusy ? ';opacity:.5;pointer-events:none' : ''}" onclick="restoreLayerBackground(${layer.id})">↺ Restore original</div>` : ''}
+      </div>
+      <div class="bg-rm-status" id="bg-rm-status-${layer.id}" style="font-size:9px;color:var(--muted);line-height:1.4;margin-bottom:10px;min-height:0">${_bgBusy && _bgBusy.id === layer.id ? _bgBusy.msg : ''}</div>
       ${state.groups.length > 0 ? `<div class="section-label" style="margin-top:2px">Group</div>
       <select style="width:100%;margin-bottom:10px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
         onclick="event.stopPropagation()"
@@ -12161,6 +12180,162 @@ window.selectLayer = function(id) {
   if (typeof _origSelectLayer === 'function') _origSelectLayer(id);
   _updateToolToolbar();
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REMOVE BACKGROUND
+// Runs fully in the browser (no server, no API key): Transformers.js (Apache-2.0)
+// + IS-Net general-use ONNX (Apache-2.0, xuebinqin/DIS via rembg), both fetched lazily on first use and cached by the
+// browser. The model predicts a 1024px matte that is upscaled and applied as the
+// alpha channel of the FULL-resolution source, so no colour pixels are resampled.
+// layer._bgPrev keeps the previous image (and crop base) for "Restore original".
+// ═══════════════════════════════════════════════════════════════════════════
+const BG_LIB_URL   = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.2/dist/transformers.min.js';   // 3.7.x fails to run WASM models here
+const BG_MODEL_ID  = 'BritishWerewolf/IS-Net';
+let _bgBusy = null;          // { id, msg } while a removal is running
+let _bgModelPromise = null;
+
+function _bgSetStatus(layerId, msg) {
+  if (_bgBusy) _bgBusy.msg = msg;
+  const el = document.getElementById('bg-rm-status-' + layerId);
+  if (el) el.textContent = msg;
+}
+
+function _bgLoadModel(onProgress) {
+  if (_bgModelPromise) return _bgModelPromise;
+  _bgModelPromise = (async () => {
+    const tf = await import(BG_LIB_URL);
+    // WASM/fp32 on purpose: WebGPU is not reliable across GPU/driver combos.
+    const model = await tf.AutoModel.from_pretrained(BG_MODEL_ID, { dtype: 'fp32', device: 'wasm', progress_callback: onProgress });
+    return { tf, model };
+  })();
+  _bgModelPromise.catch(() => { _bgModelPromise = null; });   // allow retry
+  return _bgModelPromise;
+}
+
+async function _bgRemove(img, onProgress) {
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+  const { tf, model } = await _bgLoadModel(onProgress);
+  // Full-resolution source pixels
+  const src = document.createElement('canvas');
+  src.width = W; src.height = H;
+  const sctx = src.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(img, 0, 0);
+  const full = sctx.getImageData(0, 0, W, H);
+  // Model input: 1024x1024, (px/255 - mean) / 1 as in rembg's isnet-general-use
+  const N = 1024, mean = [0.485, 0.456, 0.406];
+  const small = document.createElement('canvas');
+  small.width = small.height = N;
+  const smctx = small.getContext('2d', { willReadFrequently: true });
+  smctx.imageSmoothingQuality = 'high';
+  smctx.drawImage(src, 0, 0, N, N);
+  const px = smctx.getImageData(0, 0, N, N).data;
+  const input = new Float32Array(3 * N * N);
+  for (let i = 0; i < N * N; i++) {
+    for (let c = 0; c < 3; c++) input[c * N * N + i] = px[i * 4 + c] / 255 - mean[c];
+  }
+  const out = await model({ input_image: new tf.Tensor('float32', input, [1, 3, N, N]) });
+  const o = out.output_image || out[Object.keys(out)[0]];
+  const mh = o.dims[o.dims.length - 2], mw = o.dims[o.dims.length - 1];
+  const od = o.data;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < od.length; i++) { if (od[i] < lo) lo = od[i]; if (od[i] > hi) hi = od[i]; }
+  const range = (hi - lo) || 1;
+  // Matte -> small canvas -> bilinear upscale to source size
+  const mc = document.createElement('canvas');
+  mc.width = mw; mc.height = mh;
+  const mctx = mc.getContext('2d');
+  const mimg = mctx.createImageData(mw, mh);
+  for (let i = 0; i < mw * mh; i++) {
+    const v = (od[i] - lo) / range * 255;
+    mimg.data[i * 4] = mimg.data[i * 4 + 1] = mimg.data[i * 4 + 2] = v;
+    mimg.data[i * 4 + 3] = 255;
+  }
+  mctx.putImageData(mimg, 0, 0);
+  const up = document.createElement('canvas');
+  up.width = W; up.height = H;
+  const uctx = up.getContext('2d', { willReadFrequently: true });
+  uctx.imageSmoothingEnabled = true; uctx.imageSmoothingQuality = 'high';
+  uctx.drawImage(mc, 0, 0, W, H);
+  const mask = uctx.getImageData(0, 0, W, H).data;
+  const d = full.data;
+  for (let i = 0; i < W * H; i++) {
+    const a = mask[i * 4];                                      // red channel = matte
+    d[i * 4 + 3] = Math.round(d[i * 4 + 3] * a / 255);          // keep any existing alpha
+  }
+  sctx.putImageData(full, 0, 0);
+  return src;
+}
+
+async function removeLayerBackground(id) {
+  const layer = state.layers.find(l => l.id === id);
+  if (!layer || _bgBusy) return;
+  if (state.playing) return;
+  _bgBusy = { id, msg: 'Starting…' };
+  renderLayerList();
+  try {
+    const seen = {};
+    const onProgress = (p) => {
+      if (p.status === 'progress' && p.file) {
+        seen[p.file] = p;
+        let loaded = 0, total = 0;
+        Object.values(seen).forEach(f => { loaded += f.loaded || 0; total += f.total || 0; });
+        if (total) _bgSetStatus(id, `Downloading AI model (first use only)… ${Math.round(loaded / total * 100)}% of ${(total / 1048576).toFixed(0)} MB`);
+      } else if (p.status === 'ready') {
+        _bgSetStatus(id, 'Model ready…');
+      }
+    };
+    _bgSetStatus(id, 'Loading AI model…');
+    await _bgLoadModel(onProgress);
+    _bgSetStatus(id, 'Removing background… (can take a while on large images)');
+    await new Promise(r => setTimeout(r, 30));
+    const canvas = await _bgRemove(layer.img, onProgress);
+    const newImg = new Image();
+    await new Promise((res, rej) => { newImg.onload = res; newImg.onerror = rej; newImg.src = canvas.toDataURL('image/png'); });
+    pushUndoSnapshot();
+    if (!layer._bgPrev) {
+      layer._bgPrev = { img: layer.img, origImg: layer._origImg,
+        origX: layer._origX, origY: layer._origY, origW: layer._origW, origH: layer._origH };
+    }
+    // The crop base would bring the background back on re-crop; it is stashed in _bgPrev.
+    layer._origImg = layer._origX = layer._origY = layer._origW = layer._origH = undefined;
+    layer.img = newImg;
+    layer.hasPngAlpha = true;
+    showToast('Background removed');
+  } catch (err) {
+    console.error('Remove background failed:', err);
+    showToast('⚠️ Could not remove background — ' + (navigator.onLine ? 'model failed to load or run' : 'internet is needed the first time to download the model'), null, 5000);
+  } finally {
+    _bgBusy = null;
+    renderLayerList();
+    redrawLayersOnCanvas();
+    drawSelectionHandles();
+    scheduleAutoSave();
+  }
+}
+
+function restoreLayerBackground(id) {
+  const layer = state.layers.find(l => l.id === id);
+  if (!layer || !layer._bgPrev || _bgBusy) return;
+  pushUndoSnapshot();
+  const p = layer._bgPrev;
+  layer.img = p.img;
+  layer._origImg = p.origImg;
+  layer._origX = p.origX; layer._origY = p.origY; layer._origW = p.origW; layer._origH = p.origH;
+  layer._bgPrev = undefined;
+  // hasPngAlpha: recompute from the restored image
+  const c = document.createElement('canvas');
+  const sw = Math.min(p.img.naturalWidth, 400), sh = Math.min(p.img.naturalHeight, 400);
+  c.width = sw; c.height = sh;
+  const cx = c.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(p.img, 0, 0, sw, sh);
+  const d = cx.getImageData(0, 0, sw, sh).data;
+  layer.hasPngAlpha = false;
+  for (let i = 3; i < d.length; i += 4) { if (d[i] < 250) { layer.hasPngAlpha = true; break; } }
+  renderLayerList();
+  redrawLayersOnCanvas();
+  drawSelectionHandles();
+  scheduleAutoSave();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CROP SYSTEM

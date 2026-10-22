@@ -384,6 +384,13 @@ See [PRIVACY.md](PRIVACY.md) for the full policy.
 
 - **animate.css** 4.1.1 (MIT, © 2020 Daniel Eden, https://animate.style/): its keyframes are converted to data in `animate-css-data.js` by `tools/build-animate-data.py` and played on the canvas.
 
+**Remove background** (layer settings → Background) runs entirely in your browser and is loaded lazily, only when you click it (everything else works offline):
+
+- [Transformers.js](https://github.com/huggingface/transformers.js) 3.4.2 — Apache 2.0 (loaded from jsDelivr; it also runs the ONNX Runtime Web WASM backend, MIT)
+- [IS-Net general-use](https://huggingface.co/BritishWerewolf/IS-Net) ONNX model (~170 MB, downloaded once and cached by the browser from Hugging Face) — Apache 2.0, from [xuebinqin/DIS](https://github.com/xuebinqin/DIS) via [rembg](https://github.com/danielgatis/rembg)
+
+Your image is never uploaded; only the library and model files are downloaded.
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.

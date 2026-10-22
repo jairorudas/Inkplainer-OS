@@ -70,7 +70,7 @@ Clearing your browser's site data will permanently delete your saved projects. E
 
 ## 6. Third-party links
 
-This repository and any deployment of Inkplainer may link to external sites (GitHub, jsDelivr, Google Fonts). Those sites have their own privacy policies. We are not responsible for the content or practices of any external site.
+This repository and any deployment of Inkplainer may link to external sites (GitHub, jsDelivr, Google Fonts). The optional *Remove background* tool downloads an AI library (jsDelivr) and model (Hugging Face) the first time you use it; your images are processed locally and are never uploaded. Those sites have their own privacy policies. We are not responsible for the content or practices of any external site.
 
 ---
 
