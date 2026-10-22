@@ -1952,7 +1952,7 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-zoom { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-left: 4px; }
 .tl-zoom input { width: 90px; }
 .tl-body { display: flex; height: 168px; border-top: 1px solid var(--border); }
-.tl-labels { width: 92px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--sidebar); padding-top: 22px; }
+.tl-labels { width: 116px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--sidebar); padding-top: 22px; }
 .tl-label { height: 44px; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 10px; font-size: 10px; color: var(--muted-hi); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-scroll { position: relative; flex: 1; overflow: auto; }
 .tl-inner { position: relative; min-height: 100%; }
@@ -1979,6 +1979,12 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-icon-btn { width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted-hi); }
 .tl-icon-btn.muted { color: #e03131; background: #fdecec; border-color: #f3b4b4; }
 .tl-label .tl-lname { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tl-label.track { cursor: pointer; }
+.tl-label.track:hover { background: rgba(0,0,0,.04); }
+.tl-label.active { background: rgba(47,158,68,.12); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 0 #2f9e44; }
+.tl-lane.active { background: rgba(47,158,68,.05); }
+.tl-lane.drop { background: rgba(47,158,68,.12); }
+.tl-label input { width: 100%; font: inherit; font-size: 10px; padding: 2px 4px; border: 1px solid var(--border-hi); border-radius: 4px; background: #fff; color: var(--text); }
 .tl-label .tl-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 4px; opacity: 0; }
 .tl-label:hover .tl-x { opacity: 1; }
 .tl-label .tl-x:hover { color: #e03131; background: #fdecec; }
@@ -4192,7 +4198,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <button class="tl-btn" onclick="tlAddTrack()">+ Track</button>
       <button class="tl-btn" onclick="tlOpenR2()" title="Pick narration from the narration/ folder of your R2 bucket">R2 narration</button>
       <button class="tl-btn tl-icon-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)" aria-label="Mute preview"></button>
-      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="tlSetZoom(+this.value)"></div>
+      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="updateRangeFill(this);tlSetZoom(+this.value)"></div>
     </div>
     <div class="tl-body">
       <div class="tl-labels" id="tl-labels"></div>
@@ -7169,7 +7175,7 @@ const TL = {
   tracks: [{ id: 1, name: 'Narration', clips: [] }],
   sel: null,               // selected clip id
   playhead: 0,
-  clipId: 0, trackId: 1,
+  clipId: 0, trackId: 1, activeTrack: 1,   // activeTrack: where new audio goes
   buffers: new Map(),      // clip id -> AudioBuffer
   peaks: new Map(),        // clip id -> Float32Array (0..1)
   blobs: new Map(),        // clip id -> original audio file (kept so it can be saved with the project)
@@ -7201,6 +7207,22 @@ function tlTotal() {
   const g = tlLayout(), gEnd = g.length ? g[g.length - 1].start + g[g.length - 1].dur : 0;
   const cEnd = Math.max(0, ...TL.tracks.flatMap(t => t.clips.map(c => c.start + tlClipLen(c))));
   return Math.max(gEnd, cEnd, 10);
+}
+function tlActive() { return TL.tracks.find(t => t.id === TL.activeTrack) || TL.tracks[0]; }
+function tlRenameTrack(id, labelEl, nameEl) {
+  const t = TL.tracks.find(x => x.id === id); if (!t) return;
+  const input = document.createElement('input'); input.value = t.name; input.maxLength = 28;
+  labelEl.textContent = ''; labelEl.appendChild(input); input.focus(); input.select();
+  let done = false;
+  const finish = ok => {
+    if (done) return; done = true;
+    const v = input.value.trim();
+    if (ok && v && v !== t.name) { pushUndoSnapshot(); t.name = v; tlChanged(); }
+    tlRender();
+  };
+  input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); };
+  input.onblur = () => finish(true);
+  input.onmousedown = e => e.stopPropagation();
 }
 function tlClipLen(c) { return Math.max(0.05, (c.trimOut - c.trimIn) / c.rate); }
 
@@ -7251,7 +7273,7 @@ function tlRender() {
   frag.appendChild(glane);
   // audio lanes
   TL.tracks.forEach(tr => {
-    const lane = document.createElement('div'); lane.className = 'tl-lane'; lane.dataset.track = tr.id; lane.onmousedown = e => { if (e.target === lane) tlScrub(e); };
+    const lane = document.createElement('div'); lane.className = 'tl-lane' + (tlActive() === tr ? ' active' : ''); lane.dataset.track = tr.id; lane.onmousedown = e => { if (e.target === lane) tlScrub(e); };
     tr.clips.forEach(c => lane.appendChild(tlClipEl(c)));
     frag.appendChild(lane);
   });
@@ -7266,6 +7288,12 @@ function tlRender() {
   const mk = (txt, trackId) => {
     const d = document.createElement('div'); d.className = 'tl-label';
     const n = document.createElement('span'); n.className = 'tl-lname'; n.textContent = txt; n.title = txt; d.appendChild(n);
+    if (trackId !== undefined) {
+      d.classList.add('track'); if (tlActive().id === trackId) d.classList.add('active');
+      n.title = txt + ' — click: new audio goes here · double-click: rename';
+      d.onclick = () => { if (TL.activeTrack !== trackId) { TL.activeTrack = trackId; tlRender(); } };
+      d.ondblclick = e => { e.preventDefault(); tlRenameTrack(trackId, d, n); };
+    }
     if (trackId !== undefined && TL.tracks.length > 1) {
       const x = document.createElement('button'); x.className = 'tl-x'; x.textContent = '✕'; x.title = 'Remove this track';
       x.onclick = () => tlRemoveTrack(trackId); d.appendChild(x);
@@ -7308,7 +7336,8 @@ function tlInspector() {
   if (!c) { box.textContent = TL.tracks.some(t => t.clips.length) ? 'Select an audio clip to set its volume and speed.' : 'Add narration with “+ Add audio”. Drag clips to place them, drag their edges to cut where they end.'; return; }
   box.innerHTML = '';
   const name = document.createElement('b'); name.textContent = c.name; name.style.maxWidth = '180px'; name.style.overflow = 'hidden'; name.style.textOverflow = 'ellipsis'; name.style.whiteSpace = 'nowrap';
-  const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; }; vol.onchange = tlChanged;
+  const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; updateRangeFill(vol); }; vol.onchange = tlChanged;
+  updateRangeFill(vol);
   const vl = document.createElement('span'); vl.textContent = vol.value + '%';
   const rate = document.createElement('select');
   [0.75, 0.9, 1, 1.1, 1.25].forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r + '×'; if (r === c.rate) o.selected = true; rate.appendChild(o); });
@@ -7329,7 +7358,15 @@ function tlDrag(e, c, mode) {
   const snap = t => { const tol = 8 / TL.pps; const m = marks.find(x => Math.abs(x - t) <= tol); return m === undefined ? t : m; };
   const move = ev => {
     const dt = (ev.clientX - x0) / TL.pps;
-    if (mode === 'move') c.start = Math.max(0, snap(o.start + dt));
+    if (mode === 'move') {
+      c.start = Math.max(0, snap(o.start + dt));
+      // dropping on another lane moves the clip to that track
+      const hit = [...document.querySelectorAll('.tl-lane[data-track]')].find(l => { const r = l.getBoundingClientRect(); return ev.clientY >= r.top && ev.clientY < r.bottom; });
+      if (hit) {
+        const to = TL.tracks.find(t => t.id === +hit.dataset.track), from = TL.tracks.find(t => t.clips.includes(c));
+        if (to && from && to !== from) { from.clips.splice(from.clips.indexOf(c), 1); to.clips.push(c); TL.activeTrack = to.id; }
+      }
+    }
     else if (mode === 'r') {   // cut where the audio ends
       const endT = snap(o.start + (o.trimOut - o.trimIn) / c.rate + dt);
       c.trimOut = Math.min(dur, Math.max(o.trimIn + 0.05 * c.rate, o.trimIn + (endT - o.start) * c.rate));
@@ -7379,10 +7416,11 @@ function tlRemoveTrack(id) {
   if (t.clips.length && !confirm(`Remove "${t.name}" and its ${t.clips.length} clip${t.clips.length > 1 ? 's' : ''}?\n\nYou can bring it back with Undo.`)) return;
   pushUndoSnapshot();
   TL.tracks = TL.tracks.filter(x => x.id !== id);
+  if (TL.activeTrack === id) TL.activeTrack = TL.tracks[0].id;
   if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
   tlRender(); tlChanged();
 }
-function tlAddTrack() { pushUndoSnapshot(); TL.tracks.push({ id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), clips: [] }); tlRender(); tlChanged(); }
+function tlAddTrack() { pushUndoSnapshot(); const t = { id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), clips: [] }; TL.tracks.push(t); TL.activeTrack = t.id; tlRender(); tlChanged(); }
 async function tlAddFiles(files, trackId) {
   const AC = window.AudioContext || window.webkitAudioContext;
   TL.actx = TL.actx || new AC();
@@ -7400,7 +7438,7 @@ function tlPeaks(buf) {
 }
 function tlAddClip(buf, name, trackId, blob) {
   pushUndoSnapshot();
-  const track = TL.tracks.find(t => t.id === trackId) || TL.tracks[0];
+  const track = TL.tracks.find(t => t.id === trackId) || tlActive();
   const end = Math.max(0, ...track.clips.map(c => c.start + tlClipLen(c)));
   const clip = { id: ++TL.clipId, name, start: end, trimIn: 0, trimOut: buf.duration, volume: 1, rate: 1 };
   TL.buffers.set(clip.id, buf); TL.peaks.set(clip.id, tlPeaks(buf));
@@ -7567,7 +7605,7 @@ function tlSerialize() {
 }
 function tlReset() {
   tlStopAudio(false);
-  TL.tracks = [{ id: 1, name: 'Narration', clips: [] }]; TL.trackId = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
+  TL.tracks = [{ id: 1, name: 'Narration', clips: [] }]; TL.trackId = 1; TL.activeTrack = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
   TL.buffers.clear(); TL.peaks.clear(); TL.blobs.clear(); tlRender();
 }
 function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in memory, only the layout is swapped
