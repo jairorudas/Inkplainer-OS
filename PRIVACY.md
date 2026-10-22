@@ -34,6 +34,8 @@ Your browser's `localStorage` stores one small piece of information: whether you
 
 **Optional: Import from Cloudflare R2.** If you choose to use *Import from R2*, the app sends requests only to the Worker URL you enter, with the access token you provide, and downloads the images you pick. If you enter a write token, you can also upload photos to that bucket or move them to its trash folder, and only when you click the matching button. Nothing is sent anywhere else. The tokens are kept in memory unless you tick *Remember on this device*; then the Worker URL and tokens are stored in this browser's `localStorage` until you click *Forget saved* or clear your site data.
 
+**Audio on the timeline.** Audio files you add to the timeline are read and stored only in your browser (IndexedDB), together with your project, and are mixed into the video on your device. If you pick narration from R2, it is downloaded from the Worker you configured and then stored locally like any other file.
+
 ---
 
 ## 3. Google Fonts

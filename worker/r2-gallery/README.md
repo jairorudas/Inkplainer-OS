@@ -6,13 +6,15 @@ A small Cloudflare Worker that lets Inkplainer list, import, upload and delete i
 | Endpoint | Needs | What it does |
 |---|---|---|
 | `GET /list` | `API_TOKEN` | Lists images under `PREFIX` (the `.trash/` folder is hidden) |
-| `GET /file?key=` | `API_TOKEN` | Returns one image |
+| `GET /list?kind=audio` | `API_TOKEN` | Lists audio files under `AUDIO_PREFIX` (narration), read-only |
+| `GET /file?key=` | `API_TOKEN` | Returns one image, or one narration file under `AUDIO_PREFIX` |
 | `PUT /file?key=` | `WRITE_TOKEN` | Uploads an image (max 20 MB, content is checked, no overwrite unless `&overwrite=1`) |
 | `DELETE /file?key=` | `WRITE_TOKEN` | Moves the image to `<PREFIX>.trash/<timestamp>/…`; nothing is erased |
 
 Safety notes
 - Two tokens: the read token cannot upload or delete; the write token cannot read. If `WRITE_TOKEN` is not set the Worker is read-only.
 - Every request needs `Authorization: Bearer <token>`; comparison is constant-time.
+- `AUDIO_PREFIX` (e.g. `narration/`) is strictly read-only: it can be listed and downloaded, never uploaded to or deleted.
 - CORS is limited to `ALLOWED_ORIGINS`; only `PREFIX` is reachable; only image files; `..`, `//`, and `.trash/` keys are refused.
 - Deleted images stay in the bucket under `.trash/`; remove them from the Cloudflare dashboard when you are sure.
 
@@ -22,7 +24,7 @@ Safety notes
 2. Secrets (type each value yourself; keep them out of git):
    - `npx wrangler secret put API_TOKEN`
    - `npx wrangler secret put WRITE_TOKEN` (optional; enables upload/delete)
-3. Variables in `wrangler.toml`: `PREFIX` (e.g. `production/`) and `ALLOWED_ORIGINS` (the app's origins).
+3. Variables in `wrangler.toml`: `PREFIX` (e.g. `production/`), `AUDIO_PREFIX` (e.g. `narration/`, optional) and `ALLOWED_ORIGINS` (the app's origins).
 4. In Inkplainer: Layers → **Import from R2**, enter the Worker URL and the token(s).
 
 The tokens are stored in this browser only if you tick *Remember on this device*.

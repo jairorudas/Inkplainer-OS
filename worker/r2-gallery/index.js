@@ -1,7 +1,8 @@
 // Gallery gateway for a private R2 bucket, used by Inkplainer's "Import from R2".
 //
 //   GET    /list?prefix=&cursor=  -> { prefix, items: [{ key, size, uploaded }], cursor, truncated }   (API_TOKEN)
-//   GET    /file?key=             -> the image bytes                                                    (API_TOKEN)
+//   GET    /list?kind=audio       -> same, for the narration folder (AUDIO_PREFIX, audio files only)    (API_TOKEN)
+//   GET    /file?key=             -> the image (or narration audio) bytes                               (API_TOKEN)
 //   PUT    /file?key=[&overwrite=1] body = image                                                        (WRITE_TOKEN)
 //   DELETE /file?key=             -> moves the image to <PREFIX>.trash/<timestamp>/..., never erases    (WRITE_TOKEN)
 //
@@ -11,8 +12,10 @@
 //   WRITE_TOKEN      secret; upload/delete access. Without it, writes are refused (the Worker stays read-only).
 //   ALLOWED_ORIGINS  comma-separated origins allowed by CORS
 //   PREFIX           folder that may be listed/read/written, e.g. "production/" (default: whole bucket)
+//   AUDIO_PREFIX     optional folder with narration audio, e.g. "narration/". READ-ONLY: never writable or deletable.
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm)$/i;
 const KEY_CHARS = /^[\p{L}\p{N} ._\-/()+@,&']+$/u;
 const MAX_PAGE = 100;
 const MAX_UPLOAD = 20 * 1024 * 1024; // 20 MB
@@ -38,6 +41,7 @@ export default {
     if (!corsOk) return json({ error: 'origin not allowed' }, 403);
 
     const prefix = env.PREFIX || '';
+    const audioPrefix = env.AUDIO_PREFIX || '';
     const url = new URL(request.url);
     const isWrite = request.method === 'PUT' || request.method === 'DELETE';
     if (!isWrite && request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
@@ -45,18 +49,21 @@ export default {
     if (!(await tokenOk(request, isWrite ? env.WRITE_TOKEN : env.API_TOKEN))) return json({ error: 'unauthorized' }, 401);
 
     if (request.method === 'GET' && url.pathname === '/list') {
+      const audio = url.searchParams.get('kind') === 'audio';
+      if (audio && !audioPrefix) return json({ error: 'narration folder not configured' }, 404);
+      const base = audio ? audioPrefix : prefix, ext = audio ? AUDIO_EXT : IMAGE_EXT;
       const sub = url.searchParams.get('prefix') || '';
-      const listPrefix = prefix + sub;
-      if (!safeKey(listPrefix, prefix)) return json({ error: 'bad prefix' }, 400);
+      const listPrefix = base + sub;
+      if (!safeKey(listPrefix, base)) return json({ error: 'bad prefix' }, 400);
       const res = await env.ASSETS.list({
         prefix: listPrefix,
         cursor: url.searchParams.get('cursor') || undefined,
         limit: MAX_PAGE,
       });
       return json({
-        prefix,
+        prefix: base,
         items: res.objects
-          .filter(o => IMAGE_EXT.test(o.key) && !o.key.startsWith(prefix + TRASH))
+          .filter(o => ext.test(o.key) && !o.key.startsWith(base + TRASH))
           .map(o => ({ key: o.key, size: o.size, uploaded: o.uploaded })),
         cursor: res.truncated ? res.cursor : null,
         truncated: res.truncated,
@@ -65,7 +72,10 @@ export default {
 
     if (url.pathname === '/file') {
       const key = url.searchParams.get('key') || '';
-      if (!safeKey(key, prefix) || key.startsWith(prefix + TRASH) || !IMAGE_EXT.test(key)) return json({ error: 'bad key' }, 400);
+      // Narration audio is readable only; every write below is limited to the image prefix.
+      const isAudio = !!audioPrefix && key.startsWith(audioPrefix) && safeKey(key, audioPrefix) && !key.startsWith(audioPrefix + TRASH) && AUDIO_EXT.test(key);
+      const isImage = safeKey(key, prefix) && !key.startsWith(prefix + TRASH) && IMAGE_EXT.test(key);
+      if (request.method === 'GET' ? !(isImage || isAudio) : !isImage) return json({ error: 'bad key' }, 400);
 
       if (request.method === 'GET') {
         const obj = await env.ASSETS.get(key);

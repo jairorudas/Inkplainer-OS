@@ -1950,7 +1950,7 @@ function _tickAllSlots() {
       // Use the live, maintained _runGroupAt (window-scoped, defined in index.html) —
       // not this file's own closure-local copy, which is kept only for standalone use
       // of animations.js and has fallen behind the current implementation.
-      setTimeout(() => window._runGroupAt(nextGroup), 200);
+      { const id = state._runId; setTimeout(() => { if (id === state._runId) window._runGroupAt(nextGroup); }, 200); }
     } else {
       // Same reasoning: use the live, maintained _allLayersDone.
       window._allLayersDone();
@@ -3544,7 +3544,7 @@ function finishAnim() {
 
   const nextPos = (state._queuePos ?? 0) + 1;
   if (state._animQueue && nextPos < state._animQueue.length) {
-    setTimeout(() => _runGroupAt(nextPos), 200); // legacy: each "group" is 1 layer
+    { const id = state._runId; setTimeout(() => { if (id === state._runId) _runGroupAt(nextPos); }, 200); } // legacy: each "group" is 1 layer
   } else {
     state.bgCanvas = null;
     document.getElementById('done-badge').classList.add('show');

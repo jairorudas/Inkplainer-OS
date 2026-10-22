@@ -1364,6 +1364,11 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-msg.err { color: #dc2626; }
 .r2-hint { font-size: 10px; color: var(--muted); line-height: 1.4; }
 .r2-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-hi); }
+.r2-grid.audio { grid-template-columns: 1fr; gap: 4px; }
+.r2-item.audio { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 34px; }
+.r2-item.audio .r2-tick { top: 50%; transform: translateY(-50%); left: 9px; }
+.r2-item.audio .r2-name { padding: 0; flex: 1; font-size: 12px; }
+.r2-item.audio .r2-meta { font-size: 10px; color: var(--muted); }
 .r2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .r2-item { position: relative; border: 2px solid transparent; border-radius: 9px; background: var(--panel); cursor: pointer; overflow: hidden; }
 .r2-item.sel { border-color: #6c63ff; }
@@ -1924,6 +1929,52 @@ input[type="number"]:focus { border-color: var(--accent); }
 }
 
 /* ── Bottom control bar ── */
+#timeline-panel { flex-shrink: 0; background: var(--sidebar); border-top: 1px solid var(--border); display: flex; flex-direction: column; font-size: 11px; color: var(--text); }
+.tl-head { display: flex; align-items: center; gap: 8px; padding: 5px 12px; min-height: 32px; }
+.tl-head .tl-title { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 10px; color: var(--muted-hi); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+.tl-head .tl-title svg { transition: transform .15s; }
+#timeline-panel.collapsed .tl-title svg { transform: rotate(-90deg); }
+#timeline-panel.collapsed .tl-body, #timeline-panel.collapsed .tl-inspector { display: none; }
+.tl-btn { border: 1px solid var(--border-hi); background: var(--panel); color: var(--text); border-radius: 6px; padding: 3px 9px; font: inherit; font-size: 11px; cursor: pointer; }
+.tl-btn:hover { background: #ececec; }
+.tl-btn:disabled { opacity: .4; cursor: default; }
+#tl-time { font-variant-numeric: tabular-nums; min-width: 56px; color: var(--muted-hi); }
+.tl-zoom { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-left: auto; }
+.tl-zoom input { width: 90px; }
+.tl-body { display: flex; height: 168px; border-top: 1px solid var(--border); }
+.tl-labels { width: 92px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--sidebar); padding-top: 22px; }
+.tl-label { height: 44px; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 10px; font-size: 10px; color: var(--muted-hi); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-scroll { position: relative; flex: 1; overflow: auto; }
+.tl-inner { position: relative; min-height: 100%; }
+.tl-ruler { position: sticky; top: 0; height: 22px; background: var(--sidebar); border-bottom: 1px solid var(--border); z-index: 3; cursor: pointer; }
+.tl-tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--border-hi); padding-left: 3px; font-size: 9px; color: var(--muted); line-height: 22px; pointer-events: none; }
+.tl-lane { position: relative; height: 44px; border-bottom: 1px solid var(--border); }
+.tl-block { position: absolute; top: 6px; height: 32px; border-radius: 6px; padding: 0 8px; display: flex; align-items: center; font-size: 10px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
+.tl-group { background: #dbe4ff; border: 1px solid #91a7ff; color: #2b3a8a; }
+.tl-group.est { background: repeating-linear-gradient(135deg, #eef2ff 0 6px, #e0e7ff 6px 12px); border-style: dashed; color: #5a6aa8; }
+.tl-clip { background: #d3f9d8; border: 1px solid #69db7c; color: #205a2a; padding: 0; cursor: grab; }
+.tl-clip.sel { box-shadow: 0 0 0 2px #2f9e44; z-index: 2; }
+.tl-clip canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.tl-clip .tl-cname { position: relative; padding: 0 8px; pointer-events: none; text-shadow: 0 0 3px #d3f9d8; }
+.tl-handle { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2; }
+.tl-handle.l { left: 0; } .tl-handle.r { right: 0; }
+.tl-handle:hover { background: rgba(47,158,68,.35); }
+.tl-playhead { position: absolute; top: 0; bottom: 0; width: 13px; margin-left: -6px; z-index: 4; cursor: ew-resize; }
+.tl-playhead::after { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; border-left: 2px solid #e03131; }
+.tl-playhead-handle { position: absolute; left: 0; top: 0; width: 13px; height: 14px; background: #e03131; border-radius: 3px 3px 8px 8px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.tl-playhead:hover .tl-playhead-handle { background: #c92a2a; }
+.tl-btn.tl-primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; font-weight: 600; }
+.tl-btn.tl-primary:hover { background: #333; }
+.tl-sep { width: 1px; align-self: stretch; background: var(--border-hi); margin: 2px 2px; }
+.tl-icon-btn { width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted-hi); }
+.tl-icon-btn.muted { color: #e03131; background: #fdecec; border-color: #f3b4b4; }
+.tl-label .tl-lname { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tl-label .tl-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 4px; opacity: 0; }
+.tl-label:hover .tl-x { opacity: 1; }
+.tl-label .tl-x:hover { color: #e03131; background: #fdecec; }
+.tl-inspector { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--border); min-height: 32px; color: var(--muted-hi); }
+.tl-inspector input[type=range] { width: 90px; }
+.tl-inspector select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel); }
 #bottom-bar {
   flex-shrink: 0;
   background: var(--sidebar);
@@ -4102,6 +4153,30 @@ input[type="number"]:focus { border-color: var(--accent); }
     </div>
   </div>
 
+  <!-- ════════ TIMELINE ════════ -->
+  <div id="timeline-panel" class="collapsed">
+    <div class="tl-head">
+      <span class="tl-title" onclick="tlToggle()"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>Timeline</span>
+      <button class="tl-btn tl-primary" id="tl-run" onclick="tlPlayAll()" title="Play the animation together with its audio (pauses and resumes)">▶ Play</button>
+      <button class="tl-btn" onclick="tlRestartAll()" title="Restart the animation and the audio from the beginning">⟲ Restart</button>
+      <button class="tl-btn" onclick="tlStopAll()" title="Stop everything and go back to the start">■ Stop</button>
+      <span class="tl-sep"></span>
+      <button class="tl-btn" id="tl-play" onclick="TL.playing ? tlStopAudio(false) : tlPlayAudio()" title="Listen to the audio only, from the red line">♪ Audio only</button>
+      <span id="tl-time">0:00.0</span>
+      <button class="tl-btn" onclick="document.getElementById('tl-file').click()">+ Add audio</button>
+      <input type="file" id="tl-file" accept="audio/*" multiple style="display:none" onchange="tlAddFiles(this.files); this.value=''">
+      <button class="tl-btn" onclick="tlAddTrack()">+ Track</button>
+      <button class="tl-btn" onclick="tlOpenR2()" title="Pick narration from the narration/ folder of your R2 bucket">R2 narration</button>
+      <button class="tl-btn tl-icon-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)" aria-label="Mute preview"></button>
+      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="tlSetZoom(+this.value)"></div>
+    </div>
+    <div class="tl-body">
+      <div class="tl-labels" id="tl-labels"></div>
+      <div class="tl-scroll" id="tl-scroll"><div class="tl-inner" id="tl-inner"></div></div>
+    </div>
+    <div class="tl-inspector" id="tl-inspector"></div>
+  </div>
+
   <!-- ════════ BOTTOM BAR ════════ -->
   <div id="bottom-bar">
 
@@ -4511,6 +4586,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       </div>
       <div class="r2-msg" id="r2-msg"></div>
       <div id="r2-browser" style="display:none">
+        <div class="r2-row" style="margin-bottom:8px"><button class="r2-btn primary" id="r2-mode-images" onclick="r2SetMode('images')">Images</button><button class="r2-btn" id="r2-mode-audio" onclick="r2SetMode('audio')">Narration</button></div>
         <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter by name or folder…" oninput="r2Render()"></div>
         <div class="r2-row" id="r2-tools" style="margin-top:8px">
           <input type="text" id="r2-folder" value="uploads" placeholder="Folder for uploads" style="max-width:170px" title="Folder (inside the Worker's prefix) that new photos go to" autocomplete="off" spellcheck="false">
@@ -4553,7 +4629,7 @@ function generateRandomName() {
 // Initialize IndexedDB
 function initDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('WhiteboardAnimatorDB', 1);
+    const request = indexedDB.open('WhiteboardAnimatorDB', 2);
     
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
@@ -4570,6 +4646,8 @@ function initDB() {
         objectStore.createIndex('createdAt', 'createdAt', { unique: false });
         objectStore.createIndex('modifiedAt', 'modifiedAt', { unique: false });
       }
+      // Audio files of the timeline: out-of-line keys "<projectId>:<clipId>", values are Blobs.
+      if (!db.objectStoreNames.contains('audio')) db.createObjectStore('audio');
     };
   });
 }
@@ -4645,6 +4723,7 @@ function saveProject(projectId = currentProjectId) {
         selectedLayerId: state.selectedLayerId,
         groups: state.groups || [],
         cameraEndFull: state.cameraEndFull !== false,
+        audio: tlSerialize(),
         
         // Animation settings
         animStyle: state.animStyle,
@@ -4709,6 +4788,7 @@ function loadProject(projectId) {
       state.selectedLayerId = null;
       state.groups = [];
       state.animRunning = false;
+      tlReset();
       
       // Clear canvases
       if (typeof ctx !== 'undefined') {
@@ -4736,6 +4816,7 @@ function loadProject(projectId) {
       state.groups = savedState.groups || [];
       state.cameraEndFull = savedState.cameraEndFull !== false;
       syncCameraEndToggle();
+      tlRestore(savedState.audio, projectId);
       
       // Initialize canvas with restored size
       initCanvas(state.canvasW, state.canvasH);
@@ -5019,7 +5100,8 @@ function deleteProject(projectId, event) {
   const transaction = db.transaction(['projects'], 'readwrite');
   const objectStore = transaction.objectStore('projects');
   objectStore.delete(projectId);
-  
+  tlDeleteProjectBlobs(projectId);
+
   transaction.oncomplete = () => {
     if (projectId === currentProjectId) {
       createNewProject();
@@ -5247,6 +5329,7 @@ function _serializeState() {
     selectedLayerId: state.selectedLayerId,
     groups: JSON.parse(JSON.stringify(state.groups || [])),
     cameraEndFull: state.cameraEndFull !== false,
+    audio: tlSerialize(),
     layers: (state.layers || []).map(layer => ({
       id: layer.id,
       name: layer.name,
@@ -5335,6 +5418,7 @@ function _applySnapshot(snap, label) {
   state.groups = JSON.parse(JSON.stringify(snap.groups || []));
   state.cameraEndFull = snap.cameraEndFull !== false;
   syncCameraEndToggle();
+  tlApplyMeta(snap.audio);
 
   // Restore scalar settings
   state.canvasW          = snap.canvasW || 1280;
@@ -6725,6 +6809,9 @@ function _generateNow() {
   state._revealFinalCanvas = null;
   state._dissolveMap   = null;
   state._animProgress  = 0;
+  state._runId = (state._runId || 0) + 1;
+  state._runLog = { t0: performance.now(), groups: [], pausedMs: 0, pausedAt: null };
+  tlRunStarted();
   cameraReset();
   const _ov = document.getElementById('outline-overlay'); if (_ov) _ov.style.display = 'none';
   // Reset the hand-glide smoothing position (see drawHand) so a fresh run
@@ -6753,6 +6840,7 @@ function _generateNow() {
 function _runGroupAt(gpos) {
   if (!state._animGroups || gpos >= state._animGroups.length) { _allLayersDone(); return; }
   state._groupPos = gpos;
+  tlLogBegin(gpos);
   const group     = state._animGroups[gpos];
 
   // Pre-build the final image canvas for live reveal blending
@@ -6884,6 +6972,7 @@ function _runGroupAt(gpos) {
 }
 
 function _allLayersDone() {
+  tlLogDone();
   if (_cameraZoomed() && state.cameraEndFull !== false) _cameraMoveTo({ x: 0, y: 0, w: state.canvasW }, 1000);
   state._activeSlots  = [];
   state._currentSlot  = null;
@@ -7005,6 +7094,462 @@ function toggleRightPanel(force) {
   setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 230);
 }
 try { if (localStorage.getItem('rightPanelCollapsed') === '1') document.body.classList.add('rightpanel-collapsed'); } catch (e) {}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIMELINE — groups as measured blocks + audio clips (prototype: not saved/exported yet)
+// ═══════════════════════════════════════════════════════════════════════════
+const TL = {
+  pps: 60,                 // pixels per second
+  defaultGroupSec: 4,      // used until a group has been played once
+  gapSec: 0.2,             // pause between groups in the animation engine
+  measured: {},            // group signature -> seconds, from the last play
+  tracks: [{ id: 1, name: 'Narration', clips: [] }],
+  sel: null,               // selected clip id
+  playhead: 0,
+  clipId: 0, trackId: 1,
+  buffers: new Map(),      // clip id -> AudioBuffer
+  peaks: new Map(),        // clip id -> Float32Array (0..1)
+  blobs: new Map(),        // clip id -> original audio file (kept so it can be saved with the project)
+  muted: false, exportDest: null,
+  actx: null, nodes: [], t0: 0, raf: 0, playing: false,
+};
+
+function tlGroups() {
+  const map = new Map();
+  getAnimOrder().forEach(l => { const k = l.animOrder ?? `__${l.id}`; if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
+  return [...map.values()].map(layers => ({
+    layers,
+    sig: layers.map(l => l.id).sort((a, b) => a - b).join('+'),
+    name: layers[0].name + (layers.length > 1 ? ` +${layers.length - 1}` : ''),
+  }));
+}
+// Group blocks laid out back to back: measured seconds when known, an estimate otherwise.
+function tlLayout() {
+  let t = 0;
+  return tlGroups().map(g => {
+    const m = TL.measured[g.sig];
+    const dur = m ?? TL.defaultGroupSec;
+    const b = { ...g, start: t, dur, est: m === undefined };
+    t += dur + TL.gapSec;
+    return b;
+  });
+}
+function tlTotal() {
+  const g = tlLayout(), gEnd = g.length ? g[g.length - 1].start + g[g.length - 1].dur : 0;
+  const cEnd = Math.max(0, ...TL.tracks.flatMap(t => t.clips.map(c => c.start + tlClipLen(c))));
+  return Math.max(gEnd, cEnd, 10);
+}
+function tlClipLen(c) { return Math.max(0.05, (c.trimOut - c.trimIn) / c.rate); }
+
+// -- measuring a play (called from the animation engine hooks) --
+function tlLogBegin(gpos) {
+  const L = state._runLog; if (!L) return;
+  const now = tlRunMs();
+  if (gpos > 0 && L.groups[gpos - 1] && L.groups[gpos - 1].end == null) L.groups[gpos - 1].end = now - TL.gapSec * 1000;
+  L.groups[gpos] = { begin: now, end: null };
+}
+function tlLogDone() {
+  const L = state._runLog; if (!L || !L.groups.length) return;
+  const last = L.groups[L.groups.length - 1];
+  if (last.end == null) last.end = tlRunMs();
+  const groups = state._animGroups || [];
+  L.groups.forEach((g, i) => {
+    if (!groups[i] || g.end == null) return;
+    const sig = groups[i].map(l => l.id).sort((a, b) => a - b).join('+');
+    TL.measured[sig] = Math.max(0.1, (g.end - g.begin) / 1000);
+  });
+  tlRender();
+}
+
+// -- rendering --
+function tlFmt(sec) { const m = Math.floor(sec / 60); return m + ':' + (sec - m * 60).toFixed(1).padStart(4, '0'); }
+function tlRender() {
+  const inner = document.getElementById('tl-inner'); if (!inner) return;
+  const total = tlTotal(), width = Math.ceil((total + 3) * TL.pps);
+  inner.style.width = width + 'px';
+  const frag = document.createDocumentFragment();
+  // ruler
+  const ruler = document.createElement('div'); ruler.className = 'tl-ruler'; ruler.id = 'tl-ruler';
+  const step = TL.pps >= 100 ? 1 : TL.pps >= 40 ? 2 : TL.pps >= 22 ? 5 : 10;
+  for (let t = 0; t <= total + 3; t += step) {
+    const tick = document.createElement('div'); tick.className = 'tl-tick'; tick.style.left = t * TL.pps + 'px'; tick.textContent = tlFmt(t).replace(/\.0$/, '');
+    ruler.appendChild(tick);
+  }
+  ruler.onmousedown = tlScrub;
+  frag.appendChild(ruler);
+  // groups lane
+  const glane = document.createElement('div'); glane.className = 'tl-lane'; glane.onmousedown = e => { if (e.target === glane) tlScrub(e); };
+  tlLayout().forEach((g, i) => {
+    const b = document.createElement('div'); b.className = 'tl-block tl-group' + (g.est ? ' est' : '');
+    b.style.left = g.start * TL.pps + 'px'; b.style.width = Math.max(8, g.dur * TL.pps) + 'px';
+    b.textContent = `${i + 1} · ${g.name}`; b.title = `${g.name} — ${g.dur.toFixed(1)} s${g.est ? ' (estimate: play the animation once to measure it)' : ''}`;
+    glane.appendChild(b);
+  });
+  frag.appendChild(glane);
+  // audio lanes
+  TL.tracks.forEach(tr => {
+    const lane = document.createElement('div'); lane.className = 'tl-lane'; lane.dataset.track = tr.id; lane.onmousedown = e => { if (e.target === lane) tlScrub(e); };
+    tr.clips.forEach(c => lane.appendChild(tlClipEl(c)));
+    frag.appendChild(lane);
+  });
+  const ph = document.createElement('div'); ph.className = 'tl-playhead'; ph.id = 'tl-playhead'; ph.title = 'Drag to move the playhead';
+  ph.style.left = TL.playhead * TL.pps + 'px';
+  const handle = document.createElement('div'); handle.className = 'tl-playhead-handle'; ph.appendChild(handle);
+  ph.onmousedown = tlScrub;
+  frag.appendChild(ph);
+  inner.textContent = ''; inner.appendChild(frag);
+  // lane labels
+  const labels = document.getElementById('tl-labels'); labels.textContent = '';
+  const mk = (txt, trackId) => {
+    const d = document.createElement('div'); d.className = 'tl-label';
+    const n = document.createElement('span'); n.className = 'tl-lname'; n.textContent = txt; n.title = txt; d.appendChild(n);
+    if (trackId !== undefined && TL.tracks.length > 1) {
+      const x = document.createElement('button'); x.className = 'tl-x'; x.textContent = '✕'; x.title = 'Remove this track';
+      x.onclick = () => tlRemoveTrack(trackId); d.appendChild(x);
+    }
+    return d;
+  };
+  labels.appendChild(mk('Groups'));
+  TL.tracks.forEach(tr => labels.appendChild(mk(tr.name, tr.id)));
+  tlSyncMuteIcon();
+  tlDrawWaves(); tlInspector();
+  document.getElementById('tl-time').textContent = tlFmt(TL.playhead);
+}
+function tlClipEl(c) {
+  const el = document.createElement('div'); el.className = 'tl-block tl-clip' + (TL.sel === c.id ? ' sel' : ''); el.dataset.clip = c.id;
+  el.style.left = c.start * TL.pps + 'px'; el.style.width = Math.max(10, tlClipLen(c) * TL.pps) + 'px';
+  el.title = c.name + ' — drag to move, drag the edges to cut';
+  const cv = document.createElement('canvas'); el.appendChild(cv);
+  const nm = document.createElement('span'); nm.className = 'tl-cname'; nm.textContent = c.name; el.appendChild(nm);
+  ['l', 'r'].forEach(side => { const h = document.createElement('div'); h.className = 'tl-handle ' + side; h.onmousedown = e => tlDrag(e, c, side); el.appendChild(h); });
+  el.onmousedown = e => { if (e.target === el || e.target === cv || e.target === nm) tlDrag(e, c, 'move'); };
+  return el;
+}
+function tlDrawWaves() {
+  document.querySelectorAll('.tl-clip').forEach(el => {
+    const c = tlFindClip(+el.dataset.clip), peaks = TL.peaks.get(c.id), cv = el.querySelector('canvas'); if (!peaks) return;
+    const w = cv.width = Math.max(10, Math.round(tlClipLen(c) * TL.pps)), h = cv.height = 32, g = cv.getContext('2d');
+    g.fillStyle = 'rgba(32,110,50,.55)';
+    const per = 100; // peaks per second of source audio
+    for (let x = 0; x < w; x++) {
+      const srcT = c.trimIn + (x / TL.pps) * c.rate, i = Math.floor(srcT * per);
+      const v = peaks[i] ?? 0, bh = Math.max(1, v * (h - 4));
+      g.fillRect(x, (h - bh) / 2, 1, bh);
+    }
+  });
+}
+function tlFindClip(id) { for (const t of TL.tracks) { const c = t.clips.find(c => c.id === id); if (c) return c; } return null; }
+function tlInspector() {
+  const box = document.getElementById('tl-inspector'); if (!box) return;
+  const c = TL.sel ? tlFindClip(TL.sel) : null;
+  if (!c) { box.textContent = TL.tracks.some(t => t.clips.length) ? 'Select an audio clip to set its volume and speed.' : 'Add narration with “+ Add audio”. Drag clips to place them, drag their edges to cut where they end.'; return; }
+  box.innerHTML = '';
+  const name = document.createElement('b'); name.textContent = c.name; name.style.maxWidth = '180px'; name.style.overflow = 'hidden'; name.style.textOverflow = 'ellipsis'; name.style.whiteSpace = 'nowrap';
+  const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; }; vol.onchange = tlChanged;
+  const vl = document.createElement('span'); vl.textContent = vol.value + '%';
+  const rate = document.createElement('select');
+  [0.75, 0.9, 1, 1.1, 1.25].forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r + '×'; if (r === c.rate) o.selected = true; rate.appendChild(o); });
+  rate.onchange = () => { pushUndoSnapshot(); c.rate = +rate.value; tlRender(); tlChanged(); };
+  const info = document.createElement('span'); info.textContent = `starts ${tlFmt(c.start)} · ends ${tlFmt(c.start + tlClipLen(c))} · ${tlClipLen(c).toFixed(1)} s`; info.style.marginLeft = 'auto';
+  const del = document.createElement('button'); del.className = 'tl-btn'; del.textContent = 'Remove'; del.onclick = () => tlRemoveClip(c.id);
+  const lbl = t => { const s = document.createElement('span'); s.textContent = t; return s; };
+  box.append(name, lbl('Volume'), vol, vl, lbl('Speed'), rate, info, del);
+}
+
+// -- interaction --
+function tlDrag(e, c, mode) {
+  e.preventDefault(); e.stopPropagation();
+  TL.sel = c.id; pushUndoSnapshot();
+  const x0 = e.clientX, o = { start: c.start, trimIn: c.trimIn, trimOut: c.trimOut };
+  const dur = TL.buffers.get(c.id).duration;
+  const marks = tlLayout().flatMap(g => [g.start, g.start + g.dur]);          // snap targets
+  const snap = t => { const tol = 8 / TL.pps; const m = marks.find(x => Math.abs(x - t) <= tol); return m === undefined ? t : m; };
+  const move = ev => {
+    const dt = (ev.clientX - x0) / TL.pps;
+    if (mode === 'move') c.start = Math.max(0, snap(o.start + dt));
+    else if (mode === 'r') {   // cut where the audio ends
+      const endT = snap(o.start + (o.trimOut - o.trimIn) / c.rate + dt);
+      c.trimOut = Math.min(dur, Math.max(o.trimIn + 0.05 * c.rate, o.trimIn + (endT - o.start) * c.rate));
+    } else {                  // cut where the audio begins (keeps the end where it is)
+      const startT = snap(o.start + dt), endT = o.start + (o.trimOut - o.trimIn) / c.rate;
+      const trimIn = Math.min(o.trimOut - 0.05 * c.rate, Math.max(0, o.trimIn + (startT - o.start) * c.rate));
+      c.trimIn = trimIn; c.start = Math.max(0, endT - (c.trimOut - trimIn) / c.rate);
+    }
+    tlRender();
+  };
+  const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); tlChanged(); };
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  tlRender();
+}
+function tlMovePlayhead() {
+  const ph = document.getElementById('tl-playhead'); if (ph) ph.style.left = TL.playhead * TL.pps + 'px';
+  const tm = document.getElementById('tl-time'); if (tm) tm.textContent = tlFmt(TL.playhead);
+}
+// Drag the red line (or click the ruler / an empty part of a lane) to move the playhead.
+// The audio is paused while dragging and resumes from the new spot. The drawing itself cannot be
+// moved: only a restart replays it.
+function tlScrub(e) {
+  e.preventDefault(); e.stopPropagation();
+  const was = TL.playing; if (was) tlStopAudio(false);
+  const set = ev => {
+    const r = document.getElementById('tl-ruler').getBoundingClientRect();
+    TL.playhead = Math.max(0, (ev.clientX - r.left) / TL.pps); tlMovePlayhead();
+  };
+  set(e);
+  const up = () => { document.removeEventListener('mousemove', set); document.removeEventListener('mouseup', up); if (was) tlPlayAudio(TL.playhead); };
+  document.addEventListener('mousemove', set); document.addEventListener('mouseup', up);
+}
+function tlSetZoom(v) { TL.pps = v; tlRender(); }
+function tlToggle(force) {
+  const p = document.getElementById('timeline-panel');
+  const collapsed = force !== undefined ? !force : !p.classList.contains('collapsed');
+  p.classList.toggle('collapsed', collapsed);
+  if (!collapsed) tlRender();
+  setTimeout(() => { fitCanvas(); if (!state.playing) drawSelectionHandles(); }, 30);
+}
+
+// -- audio clips --
+function tlOpenR2() { openR2Modal(); r2SetMode('audio'); }
+function tlRemoveTrack(id) {
+  if (TL.tracks.length < 2) return;
+  const t = TL.tracks.find(x => x.id === id); if (!t) return;
+  if (t.clips.length && !confirm(`Remove "${t.name}" and its ${t.clips.length} clip${t.clips.length > 1 ? 's' : ''}?\n\nYou can bring it back with Undo.`)) return;
+  pushUndoSnapshot();
+  TL.tracks = TL.tracks.filter(x => x.id !== id);
+  if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
+  tlRender(); tlChanged();
+}
+function tlAddTrack() { pushUndoSnapshot(); TL.tracks.push({ id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), clips: [] }); tlRender(); tlChanged(); }
+async function tlAddFiles(files, trackId) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  TL.actx = TL.actx || new AC();
+  for (const f of [...files]) {
+    try {
+      const buf = await TL.actx.decodeAudioData(await f.arrayBuffer());
+      tlAddClip(buf, f.name.replace(/\.[^.]+$/, ''), trackId, f);
+    } catch (e) { showToast('Could not read ' + f.name); }
+  }
+}
+function tlPeaks(buf) {
+  const per = 100, data = buf.getChannelData(0), n = Math.ceil(buf.duration * per), peaks = new Float32Array(n), win = Math.floor(buf.sampleRate / per);
+  for (let i = 0; i < n; i++) { let m = 0; for (let j = i * win; j < Math.min(data.length, (i + 1) * win); j += 8) m = Math.max(m, Math.abs(data[j])); peaks[i] = m; }
+  return peaks;
+}
+function tlAddClip(buf, name, trackId, blob) {
+  pushUndoSnapshot();
+  const track = TL.tracks.find(t => t.id === trackId) || TL.tracks[0];
+  const end = Math.max(0, ...track.clips.map(c => c.start + tlClipLen(c)));
+  const clip = { id: ++TL.clipId, name, start: end, trimIn: 0, trimOut: buf.duration, volume: 1, rate: 1 };
+  TL.buffers.set(clip.id, buf); TL.peaks.set(clip.id, tlPeaks(buf));
+  if (blob) { TL.blobs.set(clip.id, blob); tlStoreBlob(clip.id, blob); }
+  track.clips.push(clip); TL.sel = clip.id;
+  tlToggle(true); tlRender(); tlChanged();
+}
+// Used by the R2 narration picker: a downloaded Blob becomes a clip.
+async function tlAddBlob(blob, name, trackId) {
+  const AC = window.AudioContext || window.webkitAudioContext; TL.actx = TL.actx || new AC();
+  const buf = await TL.actx.decodeAudioData(await blob.arrayBuffer());
+  tlAddClip(buf, name, trackId, blob);
+}
+function tlRemoveClip(id) {
+  pushUndoSnapshot();
+  TL.tracks.forEach(t => { t.clips = t.clips.filter(c => c.id !== id); });
+  // The decoded audio is kept so Undo can bring the clip back; it is dropped when the project closes.
+  if (TL.sel === id) TL.sel = null; tlRender(); tlChanged();
+}
+
+// -- audio engine: preview, run-synced playback, export hooks --
+const TL_SR = 48000;
+function tlHasAudio() { return TL.tracks.some(t => t.clips.some(c => TL.buffers.has(c.id))); }
+function tlAudioEnd() { return Math.max(0, ...TL.tracks.flatMap(t => t.clips.filter(c => TL.buffers.has(c.id)).map(c => c.start + tlClipLen(c)))); }
+// seconds of animation played so far, not counting time spent paused
+function tlRunMs() {
+  const L = state._runLog; if (!L) return 0;
+  const now = performance.now();
+  return now - L.t0 - (L.pausedMs || 0) - (L.pausedAt != null ? now - L.pausedAt : 0);
+}
+// While recording, the export must not stop before the narration has finished.
+function tlAudioPending() { return state.recording && tlHasAudio() && state._runLog && tlRunMs() / 1000 < tlAudioEnd(); }
+
+function tlGraphTarget() {
+  if (TL.exportDest) return TL.exportDest;                 // recording a WebM: sound goes into the file only
+  return TL.muted ? null : TL.actx.destination;
+}
+function tlPlayAudio(fromSec) {
+  tlStopAudio(false);
+  if (fromSec !== undefined) TL.playhead = fromSec;
+  else if (TL.playhead >= tlAudioEnd() - 0.05) TL.playhead = 0;      // already at the end: play again from the start
+  if (!tlHasAudio()) return;
+  const AC = window.AudioContext || window.webkitAudioContext; TL.actx = TL.actx || new AC();
+  TL.actx.resume();
+  const t0 = TL.actx.currentTime + 0.03, from = TL.playhead; TL.t0 = t0 - from; TL.playing = true;
+  const out = tlGraphTarget(), endAt = tlAudioEnd();
+  TL.tracks.forEach(tr => tr.clips.forEach(c => {
+    const buf = TL.buffers.get(c.id); if (!buf) return;
+    const len = tlClipLen(c), end = c.start + len; if (end <= from) return;
+    const skip = Math.max(0, from - c.start);                       // seconds of output already past
+    const src = TL.actx.createBufferSource(), gain = TL.actx.createGain();
+    src.buffer = buf; src.playbackRate.value = c.rate; gain.gain.value = c.volume;
+    src.connect(gain); if (out) gain.connect(out);
+    src.start(t0 + Math.max(0, c.start - from), c.trimIn + skip * c.rate, (len - skip) * c.rate);
+    TL.nodes.push(src);
+  }));
+  const tick = () => {
+    if (!TL.playing) return;
+    TL.playhead = TL.actx.currentTime - TL.t0;
+    tlMovePlayhead();
+    if (TL.playhead > endAt + 0.2) { tlStopAudio(false); return; }
+    TL.raf = requestAnimationFrame(tick);
+  };
+  TL.raf = requestAnimationFrame(tick);
+  const b = document.getElementById('tl-play'); if (b) b.textContent = '■ Audio only';
+}
+function tlStopAudio(rewind) {
+  TL.playing = false; cancelAnimationFrame(TL.raf);
+  TL.nodes.forEach(n => { try { n.stop(); } catch (e) {} }); TL.nodes = [];
+  if (TL.actx && TL.actx.state === 'suspended') TL.actx.resume();   // a pause must not leave the context frozen
+  const b = document.getElementById('tl-play'); if (b) b.textContent = '♪ Audio only';
+  if (rewind) { TL.playhead = 0; tlRender(); }
+}
+const TL_ICON_ON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" fill-opacity=".15"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+const TL_ICON_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" fill-opacity=".15"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+function tlSyncMuteIcon() {
+  const b = document.getElementById('tl-mute'); if (!b) return;
+  b.innerHTML = TL.muted ? TL_ICON_OFF : TL_ICON_ON;
+  b.classList.toggle('muted', TL.muted);
+  b.title = TL.muted ? 'Preview is muted — click to unmute (exports always include the audio)' : 'Mute the preview (exports always include the audio)';
+}
+function tlToggleMute() {
+  TL.muted = !TL.muted; tlSyncMuteIcon();
+  if (TL.playing) tlPlayAudio(TL.playhead);
+}
+
+// -- transport: the whole run (animation + audio) --
+function tlPlayAll() {
+  if (!state.layers.length) { showToast('Add an image first'); return; }
+  const paused = state._runLog && state._runLog.pausedAt != null;
+  if (state.playing || paused) { togglePlay(); return; }            // pause / resume the run in progress
+  restartAnim();                                                   // nothing running: start from the beginning
+}
+function tlRestartAll() {
+  if (!state.layers.length) { showToast('Add an image first'); return; }
+  if (state._runLog && state._runLog.pausedAt != null) state._runLog.pausedAt = null;
+  restartAnim();
+}
+function tlStopAll() {
+  resetAnim(); TL.playhead = 0; tlRender(); redrawLayersOnCanvas(); drawSelectionHandles();
+}
+function tlSyncTransport() {
+  const b = document.getElementById('tl-run'); if (b) b.textContent = state.playing ? '❚❚ Pause' : (state._runLog && state._runLog.pausedAt != null ? '▶ Resume' : '▶ Play');
+}
+// The animation (re)started: start the narration with it. An MP4 export mixes the audio offline instead.
+function tlRunStarted() {
+  tlStopAudio(false);
+  if (state._recSync) { if (state._recSync.runStartFrame == null) state._recSync.runStartFrame = state._recSync.frames; return; }
+  if (!tlHasAudio()) return;
+  TL.playhead = 0; tlPlayAudio(0);
+}
+// Pause / resume with the animation.
+function tlOnPlayToggle(playing) {
+  const L = state._runLog;
+  if (L) {
+    if (!playing && L.pausedAt == null) L.pausedAt = performance.now();
+    else if (playing && L.pausedAt != null) { L.pausedMs += performance.now() - L.pausedAt; L.pausedAt = null; }
+  }
+  if (!TL.actx || !TL.playing || state.recording) return;
+  if (playing) TL.actx.resume(); else TL.actx.suspend();
+}
+
+// -- MP4: mix the timeline offline and encode it (AAC if the browser has it, Opus otherwise) --
+async function tlPlanMp4Audio() {
+  if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') return null;
+  const base = { sampleRate: TL_SR, numberOfChannels: 2, bitrate: 128000 };
+  for (const [codec, muxCodec] of [['mp4a.40.2', 'aac'], ['opus', 'opus']]) {
+    try { const r = await AudioEncoder.isConfigSupported({ codec, ...base }); if (r.supported) return { config: { codec, ...base }, muxCodec }; } catch (e) {}
+  }
+  return null;
+}
+async function tlEncodeMp4Audio(plan, muxer, videoSec, runStartSec) {
+  const endSec = Math.max(videoSec, runStartSec + tlAudioEnd());
+  const off = new OfflineAudioContext(2, Math.ceil(endSec * TL_SR), TL_SR);
+  TL.tracks.forEach(tr => tr.clips.forEach(c => {
+    const buf = TL.buffers.get(c.id); if (!buf) return;
+    const src = off.createBufferSource(), gain = off.createGain();
+    src.buffer = buf; src.playbackRate.value = c.rate; gain.gain.value = c.volume;
+    src.connect(gain).connect(off.destination);
+    src.start(runStartSec + c.start, c.trimIn, c.trimOut - c.trimIn);
+  }));
+  const mixed = await off.startRendering();
+  let encErr = null;
+  const enc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: e => { encErr = e; } });
+  enc.configure(plan.config);
+  const L = mixed.getChannelData(0), R = mixed.getChannelData(1), step = 4800;   // 100 ms
+  for (let i = 0; i < mixed.length; i += step) {
+    const n = Math.min(step, mixed.length - i), data = new Float32Array(n * 2);
+    data.set(L.subarray(i, i + n), 0); data.set(R.subarray(i, i + n), n);        // planar: all L, then all R
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: TL_SR, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round(i / TL_SR * 1e6), data });
+    enc.encode(ad); ad.close();
+    if (encErr) throw encErr;
+  }
+  await enc.flush(); enc.close();
+  if (encErr) throw encErr;
+}
+
+// -- persistence: metadata travels with the project, the audio files live in their own store --
+function tlSerialize() {
+  return {
+    clipSeq: TL.clipId, trackSeq: TL.trackId,
+    tracks: TL.tracks.map(t => ({ id: t.id, name: t.name, clips: t.clips.map(c => ({ id: c.id, name: c.name, start: c.start, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, rate: c.rate })) })),
+  };
+}
+function tlReset() {
+  tlStopAudio(false);
+  TL.tracks = [{ id: 1, name: 'Narration', clips: [] }]; TL.trackId = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
+  TL.buffers.clear(); TL.peaks.clear(); TL.blobs.clear(); tlRender();
+}
+function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in memory, only the layout is swapped
+  if (!meta || !meta.tracks) return;
+  TL.tracks = JSON.parse(JSON.stringify(meta.tracks)).map(t => ({ ...t, clips: t.clips.filter(c => TL.buffers.has(c.id)) }));
+  if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', clips: [] }];
+  if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
+  tlRender();
+}
+function tlBlobKey(projectId, clipId) { return projectId + ':' + clipId; }
+function tlStoreBlob(clipId, blob) {
+  if (!db || !currentProjectId) return;
+  try { db.transaction(['audio'], 'readwrite').objectStore('audio').put(blob, tlBlobKey(currentProjectId, clipId)); } catch (e) { console.error('Audio save failed', e); }
+}
+function tlDeleteProjectBlobs(projectId) {
+  try { db.transaction(['audio'], 'readwrite').objectStore('audio').delete(IDBKeyRange.bound(projectId + ':', projectId + ':￿')); } catch (e) {}
+}
+function tlLoadBlob(projectId, clipId) {
+  return new Promise(res => {
+    try { const r = db.transaction(['audio'], 'readonly').objectStore('audio').get(tlBlobKey(projectId, clipId)); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); } catch (e) { res(null); }
+  });
+}
+async function tlRestore(meta, projectId) {
+  if (!meta || !meta.tracks) return;
+  TL.tracks = meta.tracks.map(t => ({ id: t.id, name: t.name, clips: [] }));
+  TL.trackId = meta.trackSeq || Math.max(1, ...TL.tracks.map(t => t.id)); TL.clipId = meta.clipSeq || 0;
+  if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', clips: [] }];
+  const AC = window.AudioContext || window.webkitAudioContext; TL.actx = TL.actx || new AC();
+  for (const t of meta.tracks) {
+    for (const c of t.clips) {
+      const blob = await tlLoadBlob(projectId, c.id); if (!blob) continue;
+      try {
+        const buf = await TL.actx.decodeAudioData(await blob.arrayBuffer());
+        TL.blobs.set(c.id, blob); TL.buffers.set(c.id, buf); TL.peaks.set(c.id, tlPeaks(buf));
+        TL.tracks.find(x => x.id === t.id).clips.push({ ...c });
+        TL.clipId = Math.max(TL.clipId, c.id);
+      } catch (e) { console.warn('Could not decode a saved audio clip', e); }
+    }
+  }
+  if (TL.tracks.some(t => t.clips.length)) document.getElementById('timeline-panel').classList.remove('collapsed');
+  tlRender();
+}
+function tlChanged() { scheduleAutoSave(); }
+
+window.addEventListener('resize', () => { if (!document.getElementById('timeline-panel').classList.contains('collapsed')) tlRender(); });
 
 // Layers whose settings the user minimized (UI state only, not saved).
 const _collapsedLayers = new Set();
@@ -9007,7 +9552,7 @@ fileInput.addEventListener('change', ()=>{ Array.from(fileInput.files).forEach(l
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPORT FROM CLOUDFLARE R2 — talks to the read-only Worker (worker/r2-gallery)
 // ═══════════════════════════════════════════════════════════════════════════
-const R2 = { url: '', token: '', wtoken: '', prefix: '', items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
+const R2 = { url: '', token: '', wtoken: '', prefix: '', mode: 'images', connected: false, aitems: [], acursor: null, aprefix: '', aloaded: false, items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
 const R2_MAX_CONCURRENT = 4;
 
 function _r2Msg(text, isErr) {
@@ -9070,6 +9615,7 @@ async function r2Connect() {
   if (!token) { _r2Msg('Enter the access token.', true); return; }
   const btn = document.getElementById('r2-connect-btn');
   btn.disabled = true; _r2Msg('Connecting…');
+  R2.aitems = []; R2.acursor = null; R2.aloaded = false; R2.connected = false;
   R2.url = url; R2.token = token; R2.wtoken = wtoken; R2.items = []; R2.cursor = null; R2.selected.clear();
   try {
     const page = await _r2Get('/list');
@@ -9081,8 +9627,10 @@ async function r2Connect() {
       } else { localStorage.removeItem('r2Token'); localStorage.removeItem('r2WriteToken'); localStorage.setItem('r2Url', url); }
     } catch (e) {}
     document.getElementById('r2-browser').style.display = '';
-    _r2Msg(R2.items.length ? '' : 'Connected, but there are no images in this folder.');
+    R2.connected = true;
+    _r2Msg(R2.items.length || R2.mode === 'audio' ? '' : 'Connected, but there are no images in this folder.');
     r2Render();
+    if (R2.mode === 'audio') r2LoadAudio();
   } catch (err) {
     R2.token = ''; R2.wtoken = '';
     _r2Msg(err.message, true);
@@ -9090,9 +9638,14 @@ async function r2Connect() {
 }
 
 async function r2LoadMore() {
-  if (!R2.cursor) return;
+  const audio = R2.mode === 'audio';
+  if (!(audio ? R2.acursor : R2.cursor)) return;
   const btn = document.getElementById('r2-more'); btn.disabled = true;
   try {
+    if (audio) {
+      const page = await _r2Get('/list?kind=audio&cursor=' + encodeURIComponent(R2.acursor));
+      R2.aitems.push(...page.items); R2.acursor = page.cursor; r2Render(); return;
+    }
     const page = await _r2Get('/list?cursor=' + encodeURIComponent(R2.cursor));
     R2.items.push(...page.items); R2.cursor = page.cursor; r2Render();
   } catch (err) { _r2Msg(err.message, true); } finally { btn.disabled = false; }
@@ -9110,7 +9663,51 @@ function _r2Pump() {
   }
 }
 
+function r2SetMode(mode) {
+  R2.mode = mode; R2.selected.clear();
+  const audio = mode === 'audio';
+  document.getElementById('r2-mode-images').classList.toggle('primary', !audio);
+  document.getElementById('r2-mode-audio').classList.toggle('primary', audio);
+  document.getElementById('r2-tools').style.display = audio ? 'none' : '';
+  document.getElementById('r2-tools-hint').style.display = audio ? 'none' : '';
+  document.getElementById('r2-import').textContent = audio ? 'Add to timeline' : 'Import selected';
+  document.getElementById('r2-filter').placeholder = audio ? 'Filter narrations…' : 'Filter by name or folder…';
+  document.getElementById('r2-grid').classList.toggle('audio', audio);
+  _r2Msg('');
+  if (!R2.connected) return;                       // the connect form is still showing
+  if (audio && !R2.aloaded) r2LoadAudio(); else r2Render();
+}
+async function r2LoadAudio() {
+  _r2Msg('Loading narrations…');
+  try {
+    const page = await _r2Get('/list?kind=audio');
+    R2.aitems = page.items; R2.acursor = page.cursor; R2.aprefix = page.prefix || ''; R2.aloaded = true;
+    _r2Msg(page.items.length ? '' : 'No audio files found in the narration folder.');
+    r2Render();
+  } catch (err) { _r2Msg(err.message, true); }
+}
+function r2RenderAudio() {
+  const grid = document.getElementById('r2-grid');
+  const q = document.getElementById('r2-filter').value.trim().toLowerCase();
+  const items = R2.aitems.filter(it => !q || it.key.toLowerCase().includes(q));
+  if (R2.io) { R2.io.disconnect(); R2.io = null; }
+  grid.textContent = '';
+  items.forEach(it => {
+    const row = document.createElement('div');
+    row.className = 'r2-item audio' + (R2.selected.has(it.key) ? ' sel' : '');
+    row.dataset.key = it.key; row.title = it.key;
+    const tick = document.createElement('div'); tick.className = 'r2-tick'; tick.textContent = '✓';
+    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = '♪  ' + it.key.slice(R2.aprefix.length);
+    const meta = document.createElement('div'); meta.className = 'r2-meta'; meta.textContent = (it.size / 1048576).toFixed(1) + ' MB';
+    row.append(tick, name, meta);
+    row.onclick = () => { R2.selected.has(it.key) ? R2.selected.delete(it.key) : R2.selected.add(it.key); row.classList.toggle('sel'); _r2UpdateCount(); };
+    grid.appendChild(row);
+  });
+  document.getElementById('r2-more').style.display = R2.acursor ? '' : 'none';
+  _r2UpdateCount(items.length);
+}
 function r2Render() {
+  if (R2.mode === 'audio') { r2RenderAudio(); return; }
   const grid = document.getElementById('r2-grid');
   const q = document.getElementById('r2-filter').value.trim().toLowerCase();
   const items = R2.items.filter(it => !q || it.key.toLowerCase().includes(q));
@@ -9138,8 +9735,10 @@ function r2Render() {
   _r2UpdateCount(items.length);
 }
 function _r2UpdateCount(shown) {
-  const n = R2.selected.size;
-  document.getElementById('r2-count').textContent = (shown !== undefined ? shown + ' images · ' : '') + n + ' selected';
+  const audio = R2.mode === 'audio';
+  const list = audio ? R2.aitems : R2.items;
+  const n = [...R2.selected].filter(k => list.some(i => i.key === k)).length;
+  document.getElementById('r2-count').textContent = (shown !== undefined ? shown + (audio ? ' files · ' : ' images · ') : '') + n + ' selected';
   document.getElementById('r2-import').disabled = n === 0;
   const canWrite = !!R2.wtoken;
   document.getElementById('r2-upload').disabled = !canWrite;
@@ -9219,7 +9818,27 @@ async function r2DeleteSelected() {
   _r2Msg(`${ok} moved to the trash${failed ? `, ${failed} failed (${lastErr})` : ''}.`, failed > 0);
 }
 
+async function r2ImportAudio() {
+  const keys = [...R2.selected].filter(k => R2.aitems.some(i => i.key === k));
+  if (!keys.length) return;
+  const btn = document.getElementById('r2-import'); btn.disabled = true;
+  let done = 0, failed = 0;
+  for (const key of keys) {
+    _r2Msg(`Adding ${done + failed + 1} of ${keys.length}…`);
+    try {
+      const blob = await _r2Get('/file?key=' + encodeURIComponent(key), true);
+      await tlAddBlob(blob, key.split('/').pop().replace(/\.[^.]+$/, ''));
+      done++;
+    } catch (err) { failed++; }
+  }
+  R2.selected.clear();
+  closeR2Modal();
+  showToast(failed ? `Added ${done}, ${failed} failed` : `Added ${done} narration${done !== 1 ? 's' : ''} to the timeline`);
+  btn.disabled = false;
+}
+
 async function r2ImportSelected() {
+  if (R2.mode === 'audio') return r2ImportAudio();
   const keys = [...R2.selected];
   if (!keys.length) return;
   const btn = document.getElementById('r2-import'); btn.disabled = true;
@@ -9854,6 +10473,8 @@ function animate() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function resetAnim() {
+  state._runId = (state._runId || 0) + 1;     // cancels a group hand-over that is still waiting on its timer
+  tlStopAudio(false);
   cancelAnimationFrame(state.animFrame);
   // Clean up any active parallel slots
   state._activeSlots  = [];
@@ -9903,7 +10524,9 @@ function startAnim()  {
 
 function togglePlay() {
   if (state.done) { restartAnim(); return; }
-  state.playing=!state.playing; updatePlayIcons();
+  state.playing=!state.playing;
+  tlOnPlayToggle(state.playing);
+  updatePlayIcons();
   if (state.playing) {
     (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
     state.slideLastTs = null;
@@ -9914,6 +10537,7 @@ function togglePlay() {
 function updatePlayIcons() {
   document.getElementById('play-icon').style.display  = state.playing?'none':'block';
   document.getElementById('pause-icon').style.display = state.playing?'block':'none';
+  if (typeof tlSyncTransport === 'function') tlSyncTransport();
 }
 
 function finishAnim() {
@@ -10010,7 +10634,7 @@ function finishAnim() {
 
   const nextPos = (state._queuePos ?? 0) + 1;
   if (state._animQueue && nextPos < state._animQueue.length) {
-    setTimeout(() => _runGroupAt(nextPos), 200); // legacy: each "group" is 1 layer
+    { const id = state._runId; setTimeout(() => { if (id === state._runId) _runGroupAt(nextPos); }, 200); } // legacy: each "group" is 1 layer
   } else {
     state.bgCanvas = null;
     document.getElementById('done-badge').classList.add('show');
@@ -10433,7 +11057,8 @@ function recordWebM(progressText, progressBar) {
         'video/webm;codecs=h264',
         'video/webm',
       ];
-      const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+      const withAudio = tlHasAudio();
+      const mime = (withAudio ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus'] : []).concat(mimes).find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
       
       // Composite canvas
       const [vidW, vidH] = videoSize();
@@ -10447,6 +11072,12 @@ function recordWebM(progressText, progressBar) {
       state.chunks = [];
       
       const stream = rec.captureStream(30);
+      if (withAudio) {           // the timeline's audio is played into this stream while the animation runs
+        TL.actx = TL.actx || new (window.AudioContext || window.webkitAudioContext)();
+        TL.actx.resume();
+        TL.exportDest = TL.actx.createMediaStreamDestination();
+        TL.exportDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+      }
       const mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate });
       
       mr.ondataavailable = e => {
@@ -10454,6 +11085,7 @@ function recordWebM(progressText, progressBar) {
       };
       
       mr.onstop = () => {
+        TL.exportDest = null; tlStopAudio(false);
         const blob = new Blob(state.chunks, { type: 'video/webm' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -10540,9 +11172,12 @@ function recordMP4(progressText, progressBar) {
       const H = vidH % 2 === 0 ? vidH : vidH + 1;
 
       const target = new ArrayBufferTarget();
+      const audioPlan = tlHasAudio() ? await tlPlanMp4Audio() : null;
+      if (tlHasAudio() && !audioPlan) showToast('This browser cannot encode audio into MP4 — exporting without sound. Use WebM to keep the audio.', null, 6000);
       const muxer  = new Muxer({
         target,
         video: { codec: 'avc', width: W, height: H },
+        ...(audioPlan ? { audio: { codec: audioPlan.muxCodec, numberOfChannels: 2, sampleRate: TL_SR } } : {}),
         fastStart: 'in-memory',
       });
 
@@ -10596,6 +11231,7 @@ function recordMP4(progressText, progressBar) {
 
       state.recording = true;
       let frameCount   = 0;
+      const sync = state._recSync = { frames: 0, runStartFrame: null };   // lets the audio line up with the video
       let rafId        = null;
       let encodingDone = false;
       let lastCaptureMs = null;
@@ -10631,6 +11267,7 @@ function recordMP4(progressText, progressBar) {
         videoEncoder.encode(frame, { keyFrame: frameCount % (FPS * 2) === 0 });
         frame.close();
         frameCount++;
+        sync.frames = frameCount;
 
         rafId = requestAnimationFrame(captureFrame);
       }
@@ -10655,6 +11292,11 @@ function recordMP4(progressText, progressBar) {
           setTimeout(async () => {
             try {
               await videoEncoder.flush();
+              if (audioPlan) {
+                progressText.textContent = 'Mixing audio…';
+                await tlEncodeMp4Audio(audioPlan, muxer, frameCount / FPS, (sync.runStartFrame ?? 0) / FPS);
+              }
+              state._recSync = null;
               muxer.finalize();
               videoEncoder.close();
 
@@ -10670,6 +11312,7 @@ function recordMP4(progressText, progressBar) {
               setTimeout(() => URL.revokeObjectURL(url), 2000);
               resolve();
             } catch (finalErr) {
+              state._recSync = null;
               reject(finalErr);
             }
           }, 800);
@@ -10677,14 +11320,14 @@ function recordMP4(progressText, progressBar) {
       }, 200);
 
     } catch (err) {
-      state.recording = false;
+      state.recording = false; state._recSync = null;
       reject(err);
     }
   });
 }
 
 function isExportAnimationComplete() {
-  if (!state.done || _cam.busy) return false;
+  if (!state.done || _cam.busy || tlAudioPending()) return false;
   const groups = state._animGroups;
   if (!groups || !groups.length) return !!state.done;
   const groupPos = Number.isFinite(state._groupPos) ? state._groupPos : 0;
