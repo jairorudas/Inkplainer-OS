@@ -1923,6 +1923,7 @@ function _tickAllSlots() {
     _mainCtx.save();
     state._slotMode = false;
     fillBg(_mainCtx);
+    if (typeof fxDrawLive === 'function') fxDrawLive(_mainCtx);
     // Re-draw above-baked layers so they don't flash invisible during the
     // 200ms gap between groups (same logic as the live-tick composite below).
     if (state._animGroups && state._animGroups.length > 1) {
@@ -1933,7 +1934,7 @@ function _tickAllSlots() {
       const aboveBaked = [];
       for (let g = 0; g < gpos; g++) {
         state._animGroups[g].forEach(layer => {
-          if (layer.visible === false) return;
+          if (layer.visible === false || layer._fxLive || layer._fxGone) return;
           if (state.layers.indexOf(layer) > currentMaxIdx) aboveBaked.push(layer);
         });
       }
@@ -1964,6 +1965,7 @@ function _tickAllSlots() {
   _mainCtx.save();
   state._slotMode = false;
   fillBg(_mainCtx); // draws bg gradient + bgCanvas (already-completed layers)
+  if (typeof fxDrawLive === 'function') fxDrawLive(_mainCtx);   // layers with an effect are drawn live, not from the baked background
   state._activeSlots.forEach(slot => _mainCtx.drawImage(slot.canvas, 0, 0));
 
   // Z-order fix: already-baked layers that are visually ABOVE the current group
@@ -1978,7 +1980,7 @@ function _tickAllSlots() {
     const aboveBaked = [];
     for (let g = 0; g < gpos; g++) {
       state._animGroups[g].forEach(layer => {
-        if (layer.visible === false) return;
+        if (layer.visible === false || layer._fxLive || layer._fxGone) return;
         if (state.layers.indexOf(layer) > currentMaxIdx) aboveBaked.push(layer);
       });
     }
@@ -3466,9 +3468,11 @@ function finishAnim() {
   // ── SLOT PATH (parallel animation) ──────────────────────────────────────────
   const slot = state._currentSlot;
   if (slot) {
-    // Bake this slot's completed result into the shared bgCanvas
-    if (state.bgCanvas) {
-      const bc = state.bgCanvas.getContext('2d');
+    // Bake this slot's completed result into the shared bgCanvas. A layer with an animate.css effect is
+    // baked into its own small canvas instead and kept live (see fxRegister in index.html).
+    const _fxCtx = (slot.layer && slot.layer.fx && typeof fxSpec === 'function' && fxSpec(slot.layer.fx.name)) ? fxBeginSnapshot(slot.layer) : null;
+    if (state.bgCanvas || _fxCtx) {
+      const bc = _fxCtx || state.bgCanvas.getContext('2d');
       if (_shouldBakeRawImage) {
         const l = slot.layer;
         if (l) {
@@ -3490,6 +3494,7 @@ function finishAnim() {
         }
       }
     }
+    if (_fxCtx) fxRegister(slot.layer);
     // Mark slot done; _tickAllSlots will detect when all slots finish
     slot.done = true;
     hctx.clearRect(0, 0, state.canvasW, state.canvasH);
