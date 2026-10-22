@@ -6855,6 +6855,7 @@ function renderLayerList() {
 
     grpEl.innerHTML = `
       <div class="layer-group-header" onclick="toggleGroupCollapse(${grp.id})">
+        <span class="layer-drag-handle" title="Drag to reorder group">⠿</span>
         <span class="layer-group-chevron"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></span>
         <svg class="layer-group-folder-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <input class="layer-group-name-input" value="${grp.name}" onclick="event.stopPropagation()"
@@ -7172,56 +7173,68 @@ function assignLayerToGroup(layerId, gidStr) {
 }
 
 // ── Drag-to-reorder layers ──
-let _dragLayerId = null, _dragStartY = 0, _dragOrigIndex = -1;
+let _dragLayerId = null, _dragGroupId = null, _dragStartY = 0;
 function setupLayerDrag() {
   document.querySelectorAll('.layer-drag-handle').forEach(handle => {
     handle.onmousedown = e => {
       e.preventDefault();
-      _dragLayerId = parseInt(handle.closest('.layer-item').dataset.id);
+      e.stopPropagation();
+      const item = handle.closest('.layer-item');
+      _dragLayerId = item ? parseInt(item.dataset.id) : null;
+      _dragGroupId = item ? null : parseInt(handle.closest('.layer-group').dataset.gid);
       _dragStartY = e.clientY;
-      _dragOrigIndex = [...state.layers].reverse().findIndex(l=>l.id===_dragLayerId);
       document.onmousemove = onDragMove;
       document.onmouseup   = onDragEnd;
     };
+    handle.onclick = e => e.stopPropagation();
   });
 }
+function _dragEl() {
+  return _dragLayerId !== null
+    ? document.querySelector(`.layer-item[data-id="${_dragLayerId}"]`)
+    : document.querySelector(`.layer-group[data-gid="${_dragGroupId}"]`);
+}
 function onDragMove(e) {
-  if (_dragLayerId === null) return;
-  const dy = e.clientY - _dragStartY;
-  const itemH = 60;
-  const shift = Math.round(dy / itemH);
-  // Visual feedback only — reorder on drop
-  document.querySelector(`.layer-item[data-id="${_dragLayerId}"]`)
-    .style.transform = `translateY(${dy}px)`;
+  if (_dragLayerId === null && _dragGroupId === null) return;
+  const el = _dragEl();
+  if (el) el.style.transform = `translateY(${e.clientY - _dragStartY}px)`;
+}
+// Layers get new Order numbers 1..n following the list sequence; layers that
+// shared a number (they animate together) stay tied unless one of them was dragged.
+function _renumberLayers(ids, movedIds) {
+  const orig = new Map(state.layers.map(l => [l.id, l.animOrder]));
+  let n = 0, prevId = null;
+  ids.forEach(id => {
+    const tied = prevId !== null && !movedIds.has(id) && !movedIds.has(prevId) &&
+      orig.get(id) != null && orig.get(id) === orig.get(prevId);
+    if (!tied) n++;
+    getLayerById(id).animOrder = n;
+    prevId = id;
+  });
 }
 function onDragEnd(e) {
-  if (_dragLayerId === null) return;
+  if (_dragLayerId === null && _dragGroupId === null) return;
   document.onmousemove = null; document.onmouseup = null;
-  const dy = e.clientY - _dragStartY;
-  const itemH = 60;
-  const shift = Math.round(dy / itemH);
-  // The list is shown in animation order, so dragging re-sequences the Order numbers.
-  const ids = [...document.querySelectorAll('#layer-list .layer-item')].map(el => parseInt(el.dataset.id));
-  const fromIdx = ids.indexOf(_dragLayerId);
-  const toIdx   = Math.max(0, Math.min(ids.length - 1, fromIdx + shift));
-  if (fromIdx !== -1 && fromIdx !== toIdx) {
+  const dragged = _dragEl();
+  const isGroup = _dragGroupId !== null;
+  // Rows that can be dropped between: loose layers + groups, or every layer for a layer drag.
+  const rowSel = isGroup ? '#layer-list > .layer-group, #layer-list > .layer-item' : '#layer-list .layer-item';
+  const rows = [...document.querySelectorAll(rowSel)];
+  const others = rows.filter(r => r !== dragged);
+  // Insert position = number of other rows whose midpoint is above the pointer.
+  const pos = others.filter(r => { const b = r.getBoundingClientRect(); return b.top + b.height / 2 < e.clientY; }).length;
+  const rowIds = r => r.classList.contains('layer-group')
+    ? [...r.querySelectorAll('.layer-item')].map(el => parseInt(el.dataset.id))
+    : [parseInt(r.dataset.id)];
+  const before = rows.map(rowIds).flat();
+  const seq = others.slice(); seq.splice(pos, 0, dragged);
+  const after = seq.map(rowIds).flat();
+  if (before.join() !== after.join()) {
     pushUndoSnapshot();
-    const orig = new Map(state.layers.map(l => [l.id, l.animOrder]));
-    const [moved] = ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, moved);
-    // Renumber 1..n, keeping layers that shared a number (they animate together) tied.
-    let n = 0, prevId = null;
-    ids.forEach(id => {
-      const l = getLayerById(id);
-      const tied = prevId !== null && id !== moved && prevId !== moved &&
-        orig.get(id) != null && orig.get(id) === orig.get(prevId);
-      if (!tied) n++;
-      l.animOrder = n;
-      prevId = id;
-    });
+    _renumberLayers(after, new Set(rowIds(dragged)));
     scheduleAutoSave();
   }
-  _dragLayerId = null;
+  _dragLayerId = null; _dragGroupId = null;
   renderLayerList();
 }
 
