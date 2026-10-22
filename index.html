@@ -1951,6 +1951,7 @@ input[type="number"]:focus { border-color: var(--accent); }
 }
 
 /* Canvas size in bottom bar */
+.bb-world-btn.disabled { opacity: .35; pointer-events: none; }
 .bb-size-group {
   display: flex;
   flex-direction: column;
@@ -4074,6 +4075,15 @@ input[type="number"]:focus { border-color: var(--accent); }
           </div>
           <div class="bb-size-readout" id="bb-size-readout">1280 × 720</div>
         </div>
+        <div class="bb-size-block">
+          <div class="bb-size-subtitle" title="Workspace size as a multiple of the video frame. The camera zooms around inside it.">World</div>
+          <div class="bb-size-row">
+            <div class="bb-res-btn bb-world-btn active" data-world="1" onclick="setWorldMul(1)">1×</div>
+            <div class="bb-res-btn bb-world-btn" data-world="2" onclick="setWorldMul(2)">2×</div>
+            <div class="bb-res-btn bb-world-btn" data-world="3" onclick="setWorldMul(3)">3×</div>
+            <div class="bb-res-btn bb-world-btn" data-world="4" onclick="setWorldMul(4)">4×</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -4444,6 +4454,7 @@ function saveProject(projectId = currentProjectId) {
         // Canvas settings
         canvasW: state.canvasW,
         canvasH: state.canvasH,
+        worldMul: state.worldMul,
         canvasBg: state.canvasBg,
         _currentRatio: _currentRatio,
         _currentRes: _currentRes,
@@ -4570,6 +4581,7 @@ function loadProject(projectId) {
       // Restore canvas settings
       state.canvasW = savedState.canvasW || 1280;
       state.canvasH = savedState.canvasH || 720;
+      state.worldMul = savedState.worldMul || 1;
       state.canvasBg = savedState.canvasBg || { type: 'solid', val: '#ffffff' };
       
       // Restore animation and drawing settings
@@ -4725,12 +4737,12 @@ function loadProject(projectId) {
       // Update topbar displays
       const sizeDisplay = document.getElementById('topbar-size-display');
       if (sizeDisplay) {
-        sizeDisplay.textContent = `${state.canvasW} × ${state.canvasH}`;
+        sizeDisplay.textContent = _sizeLabel();
       }
       
       const canvasSizeDisplay = document.getElementById('canvas-size-display');
       if (canvasSizeDisplay) {
-        canvasSizeDisplay.textContent = `${state.canvasW} × ${state.canvasH}`;
+        canvasSizeDisplay.textContent = _sizeLabel();
       }
       
       // Sync canvas size buttons
@@ -4759,11 +4771,12 @@ function loadProject(projectId) {
       );
       
       // Update size readouts
-      const sizeText = `${state.canvasW} × ${state.canvasH}`;
+      const sizeText = _sizeLabel();
       const sizeReadout = document.getElementById('size-readout');
       if (sizeReadout) sizeReadout.textContent = sizeText;
       const bbSizeReadout = document.getElementById('bb-size-readout');
       if (bbSizeReadout) bbSizeReadout.textContent = sizeText;
+      _syncBbWorldButtons();
       
       // Sync UI to reflect loaded animation style
       const animOpt = document.querySelector(`.anim-opt[data-anim="${state.animStyle}"]`);
@@ -4814,6 +4827,7 @@ async function createNewProject() {
   const cleanState = {
     canvasW: 1280,
     canvasH: 720,
+    worldMul: 1,
     canvasBg: { type: 'solid', val: '#ffffff' },
     _currentRatio: '16:9',
     _currentRes: 720,
@@ -5076,6 +5090,7 @@ function _serializeState() {
   return {
     canvasW: state.canvasW,
     canvasH: state.canvasH,
+    worldMul: state.worldMul,
     canvasBg: JSON.parse(JSON.stringify(state.canvasBg || { type:'solid', val:'#ffffff' })),
     _currentRatio,
     _currentRes,
@@ -5178,6 +5193,7 @@ function _applySnapshot(snap, label) {
   // Restore scalar settings
   state.canvasW          = snap.canvasW || 1280;
   state.canvasH          = snap.canvasH || 720;
+  state.worldMul         = snap.worldMul || 1;
   state.canvasBg         = JSON.parse(JSON.stringify(snap.canvasBg || { type:'solid', val:'#ffffff' }));
   state.animStyle        = snap.animStyle || 'chunkjump';
   state.hand             = snap.hand || 'custom1';
@@ -5203,9 +5219,10 @@ function _applySnapshot(snap, label) {
   const zt = document.getElementById('zigzag-toggle');
   if (zt) { zt.classList.toggle('on', !!state.zigzag); zt.classList.toggle('off', !state.zigzag); }
 
-  const sizeText = `${state.canvasW} × ${state.canvasH}`;
+  const sizeText = _sizeLabel();
   const tbSz = document.getElementById('topbar-size-display');
   if (tbSz) tbSz.textContent = sizeText;
+  _syncBbWorldButtons();
 
   // Restore layers asynchronously (same pattern as loadProject)
   if (!snap.layers || snap.layers.length === 0) {
@@ -5561,7 +5578,9 @@ function _syncBbCanvasButtons() {
 function _syncBbSizeReadout() {
   const r = document.getElementById('size-readout');
   const b = document.getElementById('bb-size-readout');
-  if (r && b) b.textContent = r.textContent;
+  const label = _sizeLabel();
+  if (r) r.textContent = label;
+  if (b) b.textContent = label;
 }
 
 function syncTopbarLabels() {
@@ -5791,6 +5810,7 @@ const state = {
   selectedLayerId: null,
   activeLayerIndex: 0,   // which layer is currently being animated in sequence
   groups: [],            // [{id, name, collapsed, visible, layerIds:[]}]
+  worldMul: 1,           // world (canvas) size as a multiple of the video frame
   cameraEndFull: true,   // zoom back out to the full scene after the last group
   _groupIdCounter: 0,
   // ─── PRESETS ───
@@ -5836,7 +5856,24 @@ function _cacheElements() {
 // multiplied by this so they behave identically at every resolution.
 // 720p → 1.0 · 1080p → 1.5 · 1440p → 2.0
 function resScale() {
-  return Math.sqrt((state.canvasW * state.canvasH) / (1280 * 720));
+  const [vw, vh] = videoSize();
+  return Math.sqrt((vw * vh) / (1280 * 720));
+}
+
+// The exported video frame. The canvas is the whole "world": worldMul times
+// the video frame, with the camera deciding which part of it is shown.
+function videoSize() {
+  const m = state.worldMul || 1;
+  return [Math.round(state.canvasW / m), Math.round(state.canvasH / m)];
+}
+const WORLD_MAX_PIXELS = 15e6; // keeps the per-slot canvases within a sane memory budget
+function worldFits(m) {
+  const [vw, vh] = videoSize();
+  return vw * m * vh * m <= WORLD_MAX_PIXELS;
+}
+function _sizeLabel() {
+  const [vw, vh] = videoSize();
+  return state.worldMul > 1 ? `${vw} × ${vh} · world ${state.worldMul}×` : `${vw} × ${vh}`;
 }
 
 // Sub-linear scale used for perimeter point density.
@@ -5878,7 +5915,7 @@ function initCanvas(w,h) {
   fillBg(ctx);
   
   // Update displays only if cached element exists
-  const sizeText = `${w} × ${h}`;
+  const sizeText = _sizeLabel();
   if (_cachedElements.canvasSizeDisplay) {
     _cachedElements.canvasSizeDisplay.textContent = sizeText;
   } else {
@@ -6016,7 +6053,8 @@ function addLayer(img, name) {
   pushUndoSnapshot();
   const id = ++_layerIdCounter;
   // Default size: fit within canvas keeping aspect ratio, at 80% of canvas
-  const scale = Math.min(state.canvasW / img.width, state.canvasH / img.height) * 0.8;
+  const [vw, vh] = videoSize();
+  const scale = Math.min(vw / img.width, vh / img.height) * 0.8;
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
   // Stagger position slightly for each layer
@@ -6275,7 +6313,7 @@ function cameraReset() {
 function _cameraFit(box) {
   const aspect = state.canvasW / state.canvasH, pad = 0.08;
   let w = Math.max(box.w * (1 + 2 * pad), box.h * (1 + 2 * pad) * aspect);
-  w = Math.min(Math.max(w, state.canvasW * 0.1), state.canvasW);
+  w = Math.min(Math.max(w, videoSize()[0] * 0.2), state.canvasW);
   const h = w / aspect;
   const x = Math.min(Math.max(box.x + box.w / 2 - w / 2, 0), state.canvasW - w);
   const y = Math.min(Math.max(box.y + box.h / 2 - h / 2, 0), state.canvasH - h);
@@ -8372,9 +8410,10 @@ function _applyCanvasSize() {
 }
 
 function _applyCanvasSizeImmediate() {
-  const [w, h] = CANVAS_SIZES[_currentRatio][_currentRes];
+  const [vw, vh] = CANVAS_SIZES[_currentRatio][_currentRes];
+  const w = vw * state.worldMul, h = vh * state.worldMul;
   const readout = document.getElementById('size-readout');
-  if (readout) readout.textContent = `${w} × ${h}`;
+  if (readout) readout.textContent = _sizeLabel();
 
   // Rescale and re-center every layer to fit the new canvas.
   // Each layer keeps its size proportional to the canvas it was on, then is
@@ -8424,6 +8463,35 @@ function _applyCanvasSizeImmediate() {
   
   // Update bottom bar size readout
   _syncBbSizeReadout();
+  _syncBbWorldButtons();
+}
+
+function setWorldMul(m) {
+  m = Math.max(1, Math.round(m));
+  if (m === state.worldMul || !worldFits(m)) return;
+  pushUndoSnapshot();
+  const [vw, vh] = videoSize();
+  const oldW = state.canvasW, oldH = state.canvasH;
+  const w = vw * m, h = vh * m;
+  // Keep every layer where it is relative to the middle of the world.
+  state.layers.forEach(l => { l.x += (w - oldW) / 2; l.y += (h - oldH) / 2; });
+  state.worldMul = m;
+  cameraReset();
+  initCanvas(w, h);
+  resetAnim();
+  redrawLayersOnCanvas();
+  renderLayerList();
+  scheduleAutoSave();
+  _syncBbSizeReadout();
+  _syncBbWorldButtons();
+}
+
+function _syncBbWorldButtons() {
+  document.querySelectorAll('.bb-world-btn').forEach(b => {
+    const m = parseInt(b.dataset.world);
+    b.classList.toggle('active', m === state.worldMul);
+    b.classList.toggle('disabled', !worldFits(m) && m !== state.worldMul);
+  });
 }
 
 function selectRatio(el) {
@@ -9469,8 +9537,9 @@ setTimeout(loadCustomHandImages, 100);
 
 // Get the appropriate resolution key based on canvas dimensions and orientation
 function getCurrentResolution() {
-  const maxDim = Math.max(state.canvasW, state.canvasH);
-  const isPortrait = state.canvasH > state.canvasW;
+  const [vw, vh] = videoSize();
+  const maxDim = Math.max(vw, vh);
+  const isPortrait = vh > vw;
   
   // Determine base resolution
   let baseRes;
@@ -9670,9 +9739,10 @@ function recordWebM(progressText, progressBar) {
       const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
       
       // Composite canvas
+      const [vidW, vidH] = videoSize();
       const rec = document.createElement('canvas');
-      rec.width = state.canvasW;
-      rec.height = state.canvasH;
+      rec.width = vidW;
+      rec.height = vidH;
       const rctx = rec.getContext('2d');
       
       // Start recording state
@@ -9702,8 +9772,8 @@ function recordWebM(progressText, progressBar) {
       // Sync loop - composite both canvases
       (function syncLoop() {
         if (!state.recording) return;
-        rctx.clearRect(0, 0, state.canvasW, state.canvasH);
-        _cameraDrawTo(rctx, state.canvasW, state.canvasH, true);
+        rctx.clearRect(0, 0, vidW, vidH);
+        _cameraDrawTo(rctx, vidW, vidH, true);
         requestAnimationFrame(syncLoop);
       })();
       
@@ -9768,8 +9838,9 @@ function recordMP4(progressText, progressBar) {
       const FPS        = 30;
 
       // H.264 requires even dimensions — round up if necessary
-      const W = state.canvasW % 2 === 0 ? state.canvasW : state.canvasW + 1;
-      const H = state.canvasH % 2 === 0 ? state.canvasH : state.canvasH + 1;
+      const [vidW, vidH] = videoSize();
+      const W = vidW % 2 === 0 ? vidW : vidW + 1;
+      const H = vidH % 2 === 0 ? vidH : vidH + 1;
 
       const target = new ArrayBufferTarget();
       const muxer  = new Muxer({
@@ -9940,14 +10011,14 @@ function getExportAnimationProgress() {
 function exportPNG() {
   return new Promise((resolve) => {
     // Create export canvas
+    const [vidW, vidH] = videoSize();
     const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = state.canvasW;
-    exportCanvas.height = state.canvasH;
+    exportCanvas.width = vidW;
+    exportCanvas.height = vidH;
     const exportCtx = exportCanvas.getContext('2d');
     
-    // Draw main canvas only (no hand)
-    const mainCanvas = document.getElementById('main-canvas');
-    exportCtx.drawImage(mainCanvas, 0, 0);
+    // Draw the camera's current view of the main canvas (no hand)
+    _cameraDrawTo(exportCtx, vidW, vidH, false);
     
     // Download
     exportCanvas.toBlob(blob => {
