@@ -20,6 +20,7 @@ Turn images and text into hand-drawn explainer videos — no sign-up, no waterma
 - **Smooth, adjustable hand movement** — the hand glides continuously across the canvas by default, with a switch to revert to the original snap-to-position movement if you prefer it
 - **Slicer tool** — cut any image into regions using Grid, Rectangle, or Freehand mode; each region becomes its own independently animated layer
 - **Text layers** — place styled text directly on the canvas with font picker, size, bold/italic, alignment, line-height, letter spacing, and color controls
+- **Timeline with audio** — see how long each group takes, add narration or music on one or more audio tracks, drag clips into place, cut where they end, set volume and speed; the audio plays with the animation and is included in the WebM and MP4 export (narration can also be picked from a private Cloudflare R2 bucket)
 - **Export as MP4 or WebM** — record and download at 720p, 1080p, or 1440p
 - **Export final frame as PNG** — grab a still of the finished animation in one click
 - **Auto-save projects** — every change is saved to your browser automatically; the Projects window shows total storage used across all your saved projects

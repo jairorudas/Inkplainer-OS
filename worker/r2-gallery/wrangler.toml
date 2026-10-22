@@ -14,6 +14,8 @@ bucket_name = "como-funciona-assets"
 [vars]
 # Only this folder can be listed or read.
 PREFIX = "production/"
+# Narration audio for the timeline: read-only, audio files only.
+AUDIO_PREFIX = "narration/"
 # Comma-separated origins allowed by CORS.
 ALLOWED_ORIGINS = "http://localhost:8123,https://inkdesign.netlify.app"
 
