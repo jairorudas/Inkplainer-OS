@@ -3,3 +3,4 @@ Thumbs.db
 .vscode/
 .wrangler/
 node_modules/
+.claude/
