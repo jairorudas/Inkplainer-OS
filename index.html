@@ -2328,6 +2328,8 @@ input[type="number"]:focus { border-color: var(--accent); }
   transition: color 0.12s, background 0.12s;
   flex-shrink: 0;
 }
+.layer-collapse-btn svg { transition: transform 0.15s; }
+.layer-collapse-btn.collapsed svg { transform: rotate(-90deg); }
 .layer-eye-btn:hover { color: var(--text); background: rgba(0,0,0,0.07); }
 .layer-eye-btn.hidden { color: #c8c8c8; }
 
@@ -6141,6 +6143,7 @@ function removeLayer(id) {
 }
 
 function selectLayer(id) {
+  if (state.selectedLayerId !== id) _collapsedLayers.delete(id); // newly selected layers open expanded
   state.selectedLayerId = id;
   renderLayerList();
   drawSelectionHandles();
@@ -6808,6 +6811,14 @@ function _allLayersDone() {
   })();
 }
 
+// Layers whose settings the user minimized (UI state only, not saved).
+const _collapsedLayers = new Set();
+function toggleLayerCollapse(id) {
+  if (_collapsedLayers.has(id)) _collapsedLayers.delete(id); else _collapsedLayers.add(id);
+  if (state.selectedLayerId !== id) { selectLayer(id); return; }
+  renderLayerList();
+}
+
 function renderLayerList() {
   const list = document.getElementById('layer-list');
   const empty = document.getElementById('layer-list-empty');
@@ -6815,14 +6826,19 @@ function renderLayerList() {
   count.textContent = `${state.layers.length} layer${state.layers.length!==1?'s':''}`;
   empty.style.display = state.layers.length ? 'none' : 'block';
 
-  const reversed = [...state.layers].reverse();
+  // Listed in animation order (Order number; layers without one follow, in stack order).
+  const stackIdx = new Map(state.layers.map((l, i) => [l.id, i]));
+  const reversed = [...state.layers].sort((a, b) => {
+    const ka = a.animOrder ?? Infinity, kb = b.animOrder ?? Infinity;
+    return ka === kb ? stackIdx.get(a.id) - stackIdx.get(b.id) : ka - kb;
+  });
+  const entries = []; // top-level rows (groups and loose layers), sorted by their first layer
   list.innerHTML = '';
 
   // Build group containers first, then ungrouped layers
   const renderedInGroup = new Set();
 
-  // Render groups (in reverse order of group creation for visual stack)
-  ;[...state.groups].reverse().forEach(grp => {
+  ;[...state.groups].forEach(grp => {
     const grpLayers = reversed.filter(l => l.groupId === grp.id);
     if (!grpLayers.length) return;
     grpLayers.forEach(l => renderedInGroup.add(l.id));
@@ -6851,15 +6867,18 @@ function renderLayerList() {
       </div>
       <div class="layer-group-body" id="grp-body-${grp.id}"></div>`;
 
-    list.appendChild(grpEl);
+    entries.push({ first: grpLayers[0], node: grpEl });
     const body = grpEl.querySelector(`#grp-body-${grp.id}`);
     grpLayers.forEach(layer => body.appendChild(_buildLayerItem(layer)));
   });
 
-  // Render ungrouped layers
+  // Ungrouped layers
   reversed.filter(l => !renderedInGroup.has(l.id)).forEach(layer => {
-    list.appendChild(_buildLayerItem(layer));
+    entries.push({ first: layer, node: _buildLayerItem(layer) });
   });
+
+  entries.sort((a, b) => reversed.indexOf(a.first) - reversed.indexOf(b.first));
+  entries.forEach(e => list.appendChild(e.node));
 
   setupLayerDrag();
   refreshLayerSliderVisuals(list);
@@ -6873,6 +6892,7 @@ function _buildLayerItem(layer) {
   const resizePct  = Math.round(layer.resizePct ?? 100);
   const order      = layer.animOrder !== null ? layer.animOrder : '';
   const isHidden   = layer.visible === false;
+  const isCollapsed = _collapsedLayers.has(layer.id);
 
   const eyeIcon = isHidden
     ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
@@ -6889,16 +6909,18 @@ function _buildLayerItem(layer) {
       <div style="flex:1;min-width:0">
         <div class="layer-name" title="${layer.name}">${layer.name}</div>
       </div>
+      <button class="layer-eye-btn layer-collapse-btn${isCollapsed ? ' collapsed' : ''}" onclick="event.stopPropagation();toggleLayerCollapse(${layer.id})" title="${isCollapsed ? 'Expand settings' : 'Minimize settings'}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
       <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0" onclick="event.stopPropagation()">
         <span style="font-size:9px;color:var(--muted)">Order</span>
         <input type="number" min="1" max="99" value="${order}" placeholder="—"
           title="Animation order"
           style="width:36px;padding:3px 4px;font-size:11px;text-align:center;background:var(--panel);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'DM Sans',sans-serif"
-          oninput="setLayerOrder(${layer.id},this.value)">
+          oninput="setLayerOrder(${layer.id},this.value)"
+          onchange="renderLayerList()">
       </div>
       <button class="layer-del-btn" onclick="event.stopPropagation();removeLayer(${layer.id})" title="Remove layer">✕</button>
     </div>
-    <div class="layer-settings${isSelected ? ' open' : ''}" id="ls-${layer.id}">
+    <div class="layer-settings${isSelected && !isCollapsed ? ' open' : ''}" id="ls-${layer.id}">
       <div class="section-label" style="margin-top:2px">Resize</div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
         <input type="range" min="10" max="300" value="${resizePct}"
@@ -7178,18 +7200,29 @@ function onDragEnd(e) {
   const dy = e.clientY - _dragStartY;
   const itemH = 60;
   const shift = Math.round(dy / itemH);
-  const revLayers = [...state.layers].reverse();
-  const fromIdx = revLayers.findIndex(l=>l.id===_dragLayerId);
-  const toIdx   = Math.max(0, Math.min(revLayers.length-1, fromIdx + shift));
-  if (fromIdx !== toIdx) {
+  // The list is shown in animation order, so dragging re-sequences the Order numbers.
+  const ids = [...document.querySelectorAll('#layer-list .layer-item')].map(el => parseInt(el.dataset.id));
+  const fromIdx = ids.indexOf(_dragLayerId);
+  const toIdx   = Math.max(0, Math.min(ids.length - 1, fromIdx + shift));
+  if (fromIdx !== -1 && fromIdx !== toIdx) {
     pushUndoSnapshot();
-    const [moved] = revLayers.splice(fromIdx,1);
-    revLayers.splice(toIdx,0,moved);
-    state.layers = revLayers.reverse();
+    const orig = new Map(state.layers.map(l => [l.id, l.animOrder]));
+    const [moved] = ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, moved);
+    // Renumber 1..n, keeping layers that shared a number (they animate together) tied.
+    let n = 0, prevId = null;
+    ids.forEach(id => {
+      const l = getLayerById(id);
+      const tied = prevId !== null && id !== moved && prevId !== moved &&
+        orig.get(id) != null && orig.get(id) === orig.get(prevId);
+      if (!tied) n++;
+      l.animOrder = n;
+      prevId = id;
+    });
+    scheduleAutoSave();
   }
   _dragLayerId = null;
   renderLayerList();
-  redrawLayersOnCanvas();
 }
 
 // ── Redraw all layers composited on canvas ──
