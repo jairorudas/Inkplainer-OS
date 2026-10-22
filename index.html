@@ -1358,6 +1358,8 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-btn { padding: 7px 14px; font: inherit; font-size: 12px; font-weight: 600; border-radius: 7px; border: 1px solid var(--border-hi); background: var(--panel); color: var(--text); cursor: pointer; }
 .r2-btn.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
 .r2-btn:disabled { opacity: .45; cursor: default; }
+.r2-btn.danger { color: #dc2626; border-color: #f3b4b4; }
+.r2-btn.danger:disabled { color: var(--muted); border-color: var(--border-hi); }
 .r2-msg { font-size: 11px; color: var(--muted); min-height: 14px; }
 .r2-msg.err { color: #dc2626; }
 .r2-hint { font-size: 10px; color: var(--muted); line-height: 1.4; }
@@ -4498,6 +4500,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <div id="r2-connect">
         <div class="r2-row"><label for="r2-url">Worker URL</label><input type="text" id="r2-url" placeholder="https://your-worker.your-account.workers.dev" autocomplete="off" spellcheck="false"></div>
         <div class="r2-row" style="margin-top:8px"><label for="r2-token">Access token</label><input type="password" id="r2-token" placeholder="The API_TOKEN you set on the Worker" autocomplete="off"></div>
+        <div class="r2-row" style="margin-top:8px"><label for="r2-wtoken">Write token <span style="font-weight:400">(optional — only needed to upload or delete)</span></label><input type="password" id="r2-wtoken" placeholder="The WRITE_TOKEN set on the Worker" autocomplete="off"></div>
         <div class="r2-row" style="margin-top:8px">
           <label class="r2-check" style="width:auto;margin:0;font-size:11px"><input type="checkbox" id="r2-remember"> Remember on this device</label>
           <span style="flex:1"></span>
@@ -4509,6 +4512,14 @@ input[type="number"]:focus { border-color: var(--accent); }
       <div class="r2-msg" id="r2-msg"></div>
       <div id="r2-browser" style="display:none">
         <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter by name or folder…" oninput="r2Render()"></div>
+        <div class="r2-row" id="r2-tools" style="margin-top:8px">
+          <input type="text" id="r2-folder" value="uploads" placeholder="Folder for uploads" style="max-width:170px" title="Folder (inside the Worker's prefix) that new photos go to" autocomplete="off" spellcheck="false">
+          <button class="r2-btn" id="r2-upload" onclick="document.getElementById('r2-upload-input').click()">Upload photos</button>
+          <input type="file" id="r2-upload-input" accept="image/*" multiple style="display:none" onchange="r2Upload(this.files); this.value=''">
+          <span style="flex:1"></span>
+          <button class="r2-btn danger" id="r2-delete" onclick="r2DeleteSelected()">Delete selected</button>
+        </div>
+        <div class="r2-hint" id="r2-tools-hint" style="margin-top:4px"></div>
         <div class="r2-grid" id="r2-grid" style="margin-top:10px"></div>
         <div style="text-align:center;margin-top:10px"><button class="r2-btn" id="r2-more" onclick="r2LoadMore()" style="display:none">Load more</button></div>
       </div>
@@ -8996,25 +9007,38 @@ fileInput.addEventListener('change', ()=>{ Array.from(fileInput.files).forEach(l
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPORT FROM CLOUDFLARE R2 — talks to the read-only Worker (worker/r2-gallery)
 // ═══════════════════════════════════════════════════════════════════════════
-const R2 = { url: '', token: '', items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
+const R2 = { url: '', token: '', wtoken: '', prefix: '', items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
 const R2_MAX_CONCURRENT = 4;
 
 function _r2Msg(text, isErr) {
   const el = document.getElementById('r2-msg');
   el.textContent = text || ''; el.classList.toggle('err', !!isErr);
 }
+function _r2Err(status, write) {
+  if (status === 401) return write ? 'Wrong write token (or uploads are not enabled on the Worker).' : 'Wrong token.';
+  if (status === 403) return 'This site is not allowed by the Worker (CORS).';
+  if (status === 413) return 'File too large (max 20 MB).';
+  if (status === 415) return 'Not a valid image.';
+  return 'The Worker answered ' + status + '.';
+}
+function _r2Fetch(path, opts, write) {
+  const url = R2.url.replace(/\/+$/, '') + path;
+  const headers = { Authorization: 'Bearer ' + (write ? R2.wtoken : R2.token), ...(opts && opts.headers) };
+  return fetch(url, { ...opts, headers }).catch(() => { throw new Error('Could not reach the Worker. Check the URL and your connection.'); });
+}
 function _r2Get(path, asBlob) {
-  return fetch(R2.url.replace(/\/+$/, '') + path, { headers: { Authorization: 'Bearer ' + R2.token } }).then(res => {
-    if (!res.ok) throw new Error(res.status === 401 ? 'Wrong token.' : res.status === 403 ? 'This site is not allowed by the Worker (CORS).' : 'The Worker answered ' + res.status + '.');
+  return _r2Fetch(path).then(res => {
+    if (!res.ok) throw new Error(_r2Err(res.status));
     return asBlob ? res.blob() : res.json();
-  }, () => { throw new Error('Could not reach the Worker. Check the URL and your connection.'); });
+  });
 }
 
 function openR2Modal() {
   let saved = null;
-  try { saved = { url: localStorage.getItem('r2Url'), token: localStorage.getItem('r2Token') }; } catch (e) {}
+  try { saved = { url: localStorage.getItem('r2Url'), token: localStorage.getItem('r2Token'), wtoken: localStorage.getItem('r2WriteToken') }; } catch (e) {}
   document.getElementById('r2-url').value = R2.url || (saved && saved.url) || '';
   document.getElementById('r2-token').value = R2.token || (saved && saved.token) || '';
+  document.getElementById('r2-wtoken').value = R2.wtoken || (saved && saved.wtoken) || '';
   document.getElementById('r2-remember').checked = !!(saved && saved.token);
   document.getElementById('r2-forget').style.display = saved && saved.token ? '' : 'none';
   document.getElementById('r2-modal').classList.add('open');
@@ -9031,8 +9055,8 @@ document.addEventListener('keydown', e => {
 });
 
 function r2Forget() {
-  try { localStorage.removeItem('r2Token'); localStorage.removeItem('r2Url'); } catch (e) {}
-  R2.token = ''; document.getElementById('r2-token').value = '';
+  try { localStorage.removeItem('r2Token'); localStorage.removeItem('r2WriteToken'); localStorage.removeItem('r2Url'); } catch (e) {}
+  R2.token = ''; R2.wtoken = ''; document.getElementById('r2-token').value = ''; document.getElementById('r2-wtoken').value = '';
   document.getElementById('r2-remember').checked = false;
   document.getElementById('r2-forget').style.display = 'none';
   _r2Msg('Saved token removed from this browser.');
@@ -9041,23 +9065,26 @@ function r2Forget() {
 async function r2Connect() {
   const url = document.getElementById('r2-url').value.trim();
   const token = document.getElementById('r2-token').value.trim();
+  const wtoken = document.getElementById('r2-wtoken').value.trim();
   if (!/^https:\/\//i.test(url) && !/^http:\/\/localhost[:/]/i.test(url)) { _r2Msg('Enter the Worker URL (it must start with https://).', true); return; }
   if (!token) { _r2Msg('Enter the access token.', true); return; }
   const btn = document.getElementById('r2-connect-btn');
   btn.disabled = true; _r2Msg('Connecting…');
-  R2.url = url; R2.token = token; R2.items = []; R2.cursor = null; R2.selected.clear();
+  R2.url = url; R2.token = token; R2.wtoken = wtoken; R2.items = []; R2.cursor = null; R2.selected.clear();
   try {
     const page = await _r2Get('/list');
-    R2.items = page.items; R2.cursor = page.cursor;
+    R2.items = page.items; R2.cursor = page.cursor; R2.prefix = page.prefix || '';
     try {
-      if (document.getElementById('r2-remember').checked) { localStorage.setItem('r2Url', url); localStorage.setItem('r2Token', token); }
-      else { localStorage.removeItem('r2Token'); localStorage.setItem('r2Url', url); }
+      if (document.getElementById('r2-remember').checked) {
+        localStorage.setItem('r2Url', url); localStorage.setItem('r2Token', token);
+        if (wtoken) localStorage.setItem('r2WriteToken', wtoken); else localStorage.removeItem('r2WriteToken');
+      } else { localStorage.removeItem('r2Token'); localStorage.removeItem('r2WriteToken'); localStorage.setItem('r2Url', url); }
     } catch (e) {}
     document.getElementById('r2-browser').style.display = '';
     _r2Msg(R2.items.length ? '' : 'Connected, but there are no images in this folder.');
     r2Render();
   } catch (err) {
-    R2.token = '';
+    R2.token = ''; R2.wtoken = '';
     _r2Msg(err.message, true);
   } finally { btn.disabled = false; }
 }
@@ -9114,6 +9141,82 @@ function _r2UpdateCount(shown) {
   const n = R2.selected.size;
   document.getElementById('r2-count').textContent = (shown !== undefined ? shown + ' images · ' : '') + n + ' selected';
   document.getElementById('r2-import').disabled = n === 0;
+  const canWrite = !!R2.wtoken;
+  document.getElementById('r2-upload').disabled = !canWrite;
+  document.getElementById('r2-folder').disabled = !canWrite;
+  document.getElementById('r2-delete').disabled = !canWrite || n === 0;
+  document.getElementById('r2-tools-hint').textContent = canWrite
+    ? 'Uploads go to the folder above. Deleting moves images to a .trash/ folder in the bucket; it does not erase them.'
+    : 'Enter a write token and reconnect to upload or delete.';
+}
+
+// ── Upload / delete (need the write token) ──
+const R2_MAX_UPLOAD = 20 * 1024 * 1024;
+const R2_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif' };
+function _r2CleanName(n) { return n.normalize('NFC').replace(/[^\p{L}\p{N} ._\-()]/gu, '_').replace(/^\.+/, '_'); }
+function _r2Folder(raw) {
+  return raw.split('/').map(seg => seg.trim()).filter(seg => seg && seg !== '.' && seg !== '..').map(_r2CleanName).join('/');
+}
+async function r2Reload(mustInclude) {
+  let page = await _r2Get('/list');
+  R2.items = page.items; R2.cursor = page.cursor; R2.prefix = page.prefix || R2.prefix;
+  // Keep paging until freshly uploaded files are on screen (bounded).
+  for (let n = 0; mustInclude && mustInclude.length && R2.cursor && n < 30 && !mustInclude.every(k => R2.items.some(i => i.key === k)); n++) {
+    page = await _r2Get('/list?cursor=' + encodeURIComponent(R2.cursor));
+    R2.items.push(...page.items); R2.cursor = page.cursor;
+  }
+  R2.selected = new Set([...R2.selected].filter(k => R2.items.some(i => i.key === k)));
+  r2Render();
+}
+
+async function r2Upload(fileList) {
+  const files = [...fileList];
+  if (!files.length || !R2.wtoken) return;
+  const folder = _r2Folder(document.getElementById('r2-folder').value);
+  const dir = R2.prefix + (folder ? folder + '/' : '');
+  let ok = 0, skipped = 0, failed = 0, lastErr = '';
+  const uploaded = [];
+  for (const [i, f] of files.entries()) {
+    _r2Msg(`Uploading ${i + 1} of ${files.length}…`);
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    const type = f.type.startsWith('image/') ? f.type : R2_TYPES[ext];
+    if (!type || !R2_TYPES[ext]) { failed++; lastErr = `${f.name}: not a supported image type.`; continue; }
+    if (f.size > R2_MAX_UPLOAD) { failed++; lastErr = `${f.name}: larger than 20 MB.`; continue; }
+    const key = dir + _r2CleanName(f.name);
+    try {
+      let res = await _r2Fetch('/file?key=' + encodeURIComponent(key), { method: 'PUT', body: f, headers: { 'Content-Type': type } }, true);
+      if (res.status === 409) {
+        if (!confirm(`"${key.slice(R2.prefix.length)}" already exists in R2. Replace it?`)) { skipped++; continue; }
+        res = await _r2Fetch('/file?key=' + encodeURIComponent(key) + '&overwrite=1', { method: 'PUT', body: f, headers: { 'Content-Type': type } }, true);
+        const old = R2.thumbs.get(key); if (old) { URL.revokeObjectURL(old); R2.thumbs.delete(key); }
+      }
+      if (!res.ok) throw new Error(_r2Err(res.status, true));
+      ok++; uploaded.push(key);
+    } catch (err) { failed++; lastErr = err.message; if (/write token/.test(err.message)) break; }
+  }
+  try { await r2Reload(uploaded); } catch (e) {}
+  const parts = [];
+  if (ok) parts.push(`${ok} uploaded`); if (skipped) parts.push(`${skipped} skipped`); if (failed) parts.push(`${failed} failed${lastErr ? ' (' + lastErr + ')' : ''}`);
+  _r2Msg(parts.join(', ') + '.', failed > 0);
+}
+
+async function r2DeleteSelected() {
+  const keys = [...R2.selected];
+  if (!keys.length || !R2.wtoken) return;
+  const label = keys.length === 1 ? `"${keys[0].slice(R2.prefix.length)}"` : `${keys.length} images`;
+  if (!confirm(`Delete ${label} from R2?\n\nThey are moved to ${R2.prefix}.trash/ in the bucket, so you can still recover them from the Cloudflare dashboard.`)) return;
+  let ok = 0, failed = 0, lastErr = '';
+  for (const [i, key] of keys.entries()) {
+    _r2Msg(`Deleting ${i + 1} of ${keys.length}…`);
+    try {
+      const res = await _r2Fetch('/file?key=' + encodeURIComponent(key), { method: 'DELETE' }, true);
+      if (!res.ok) throw new Error(_r2Err(res.status, true));
+      ok++; R2.selected.delete(key);
+      const old = R2.thumbs.get(key); if (old) { URL.revokeObjectURL(old); R2.thumbs.delete(key); }
+    } catch (err) { failed++; lastErr = err.message; if (/write token/.test(err.message)) break; }
+  }
+  try { await r2Reload(); } catch (e) {}
+  _r2Msg(`${ok} moved to the trash${failed ? `, ${failed} failed (${lastErr})` : ''}.`, failed > 0);
 }
 
 async function r2ImportSelected() {
