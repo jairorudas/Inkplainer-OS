@@ -4337,10 +4337,10 @@ input[type="number"]:focus { border-color: var(--accent); }
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
         </div>
-        <div class="drop-primary">Drop images or <span>browse</span></div>
-        <div class="drop-secondary">PNG, JPG, GIF, SVG · Multiple files OK</div>
+        <div class="drop-primary">Drop images or audio, or <span>browse</span></div>
+        <div class="drop-secondary">PNG, JPG, GIF, SVG or audio (MP3, WAV…) · Multiple files OK</div>
       </div>
-      <input type="file" id="file-input" accept="image/*" multiple>
+      <input type="file" id="file-input" accept="image/*,audio/*" multiple>
       <button class="r2-import-btn" onclick="openR2Modal()" title="Browse images from your Cloudflare R2 bucket">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
         Import from R2
@@ -10345,11 +10345,18 @@ const dropZone  = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 dropZone.addEventListener('dragover', e=>{ e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', ()=>dropZone.classList.remove('drag-over'));
+// Images become layers; audio files (dropped or picked here too) become clips on the active audio track.
+const _isAudioFile = f => f.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|weba)$/i.test(f.name);
+function loadDroppedFiles(list) {
+  const files = Array.from(list), audio = files.filter(_isAudioFile);
+  files.filter(f => !_isAudioFile(f) && f.type.startsWith('image/')).forEach(loadImageFile);
+  if (audio.length) { tlAddFiles(audio); showToast(audio.length === 1 ? 'Audio added to the timeline' : audio.length + ' audios added to the timeline'); }
+}
 dropZone.addEventListener('drop', e=>{
   e.preventDefault(); dropZone.classList.remove('drag-over');
-  Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/')).forEach(loadImageFile);
+  loadDroppedFiles(e.dataTransfer.files);
 });
-fileInput.addEventListener('change', ()=>{ Array.from(fileInput.files).forEach(loadImageFile); fileInput.value=''; });
+fileInput.addEventListener('change', ()=>{ loadDroppedFiles(fileInput.files); fileInput.value=''; });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPORT FROM CLOUDFLARE R2 — talks to the read-only Worker (worker/r2-gallery)
