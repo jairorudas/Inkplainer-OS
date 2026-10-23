@@ -10622,7 +10622,7 @@ async function sfxAdd(id) {
 // ARROWS — SVG pack from assets/arrows (see tools/build-arrows.py); color / rotation are baked in before adding
 // ═══════════════════════════════════════════════════════════════════════════
 const AR = { sticker: {}, style: null, color: '#111111', sel: new Map(), loaded: false, width: { highlight: 34, underline: 7, circle: 6 }, pen: { highlight: 'chisel', underline: 'pen', circle: 'pen' } };
-const AR_STROKE_KINDS = ['highlight', 'underline', 'circle', 'box', 'brace', 'strike', 'mark', 'connector', 'bubble'];
+const AR_STROKE_KINDS = ['highlight', 'underline', 'circle', 'box', 'brace', 'strike', 'mark', 'connector', 'bubble', 'band', 'number', 'accent'];
 const arIsStroke = s => AR_STROKE_KINDS.includes(s);
 const AR_COLORS = ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#0ea5e9', '#2563eb', '#9333ea', '#ec4899'];
 function arDarken(hex) { return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.substr(i, 2), 16) * .55).toString(16).padStart(2, '0')).join(''); }

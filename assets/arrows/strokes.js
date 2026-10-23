@@ -49,6 +49,8 @@
     double:     { double: true, pts: () => sample(t => [X0 + SPAN * t, 50], 60) },
     wavy:       { pts: w => sample(t => [X0 + SPAN * t, 50 + wavyAmp(w) * Math.sin(t * Math.PI * 2 * 12)], 220) },
     zigzag:     { pts: w => sample(t => { const k = (t * 14) % 1, a = wavyAmp(w); return [X0 + SPAN * t, 50 + a * (Math.abs(k * 2 - 1) * 2 - 1)]; }, 400) },
+    swoosh:     { pts: () => sample(t => [X0 + SPAN * t, 62 - 16 * t - 7 * Math.sin(t * Math.PI)], 80) },
+    'swoosh-2': { double: true, pts: () => sample(t => [X0 + SPAN * t, 56 - 10 * t - 5 * Math.sin(t * Math.PI)], 80) },
     scribble:   { pts: w => { const R = Math.max(9, wavyAmp(w) + 1); return sample(t => { const th = t * Math.PI * 2 * 9; return [X0 + SPAN * t - R * Math.sin(th) * .9, 50 - R * Math.cos(th) * .9]; }, 400); } },
   };
 
@@ -154,6 +156,67 @@
   }
   const dashW = ww => `${f(ww * 3 + 6)} ${f(ww * 2 + 6)}`;
 
+
+  // ---- editorial kit (inspired by hand-made explainer posters): marker bands, note cards, number badges, accents ----
+  const rot = (pts, deg, cx, cy) => { const a = deg * Math.PI / 180, c = Math.cos(a), s2 = Math.sin(a); return pts.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s2, cy + (x - cx) * s2 + (y - cy) * c]); };
+  const INK = '#111111';
+  // a rectangle "painted" with overlapping marker passes: the overlaps give the streaky look of a real marker
+  function markerFill(x0, y0, x1, y1, ww, r, extra = {}) {
+    const h = y1 - y0, pw = Math.max(6, ww * 1.1), n = Math.max(2, Math.round(h / (pw * .72)) + 1);
+    return Array.from({ length: n }, (_, i) => {
+      const y = y0 + pw / 2 + (h - pw) * (n === 1 ? .5 : i / (n - 1));
+      return { pts: lin([x0 + jit(r, 10), y + jit(r, 2)], [x1 + jit(r, 10), y + jit(r, 4)], 24), op: .86, single: true, cap: 'butt', w: pw, wob: .5, ...extra };
+    });
+  }
+  const sketchOutline = (x0, y0, x1, y1, r, color = '#6b7280') =>
+    [0, 1].flatMap(k => boxLines2(x0 - k * 2, y0 - k * 2, x1 + k * 2, y1 + k * 2, r).map(pts => ({ pts, color, w: 2.2, op: .7 - k * .2, single: true, wob: .35 })));
+  function boxLines2(x0, y0, x1, y1, r) {
+    const os = 4 + r() * 4;
+    return [lin([x0 - os, y0 + jit(r)], [x1 + os * .6, y0 + jit(r)]), lin([x1 + jit(r), y0 - os * .6], [x1 + jit(r), y1 + os]),
+            lin([x1 + os, y1 + jit(r)], [x0 - os * .6, y1 + jit(r)]), lin([x0 + jit(r), y1 + os * .6], [x0 + jit(r), y0 - os])];
+  }
+  const band = (W, H, tilt = 0) => (ww, r) => { const m = 8; const out = markerFill(m + 6, m, W - m - 6, H - m, ww, r); return tilt ? out.map(it => ({ ...it, pts: rot(it.pts, tilt, W / 2, H / 2) })) : out; };
+  const card = (W, H, tilt, tape) => (ww, r) => {
+    const x0 = 22, y0 = 22, x1 = W - 22, y1 = H - 22;
+    let items = [...markerFill(x0, y0, x1, y1, Math.min(ww, 30), r), ...sketchOutline(x0 - 4, y0 - 4, x1 + 4, y1 + 4, r)];
+    if (tape) items.push(...markerFill(W / 2 - 34, 6, W / 2 + 34, 34, 12, r, { color: '#fde68a', op: .8 }).map(it => ({ ...it, pts: rot(it.pts, -4, W / 2, 20) })));
+    return tilt ? items.map(it => ({ ...it, pts: rot(it.pts, tilt, W / 2, H / 2) })) : items;
+  };
+
+  // digits as pen strokes in a 100x140 box
+  const DIGITS = {
+    0: () => [arc(50, 70, 30, 55, -90, 275, 40)],
+    1: () => [lin([32, 40], [55, 16], 8), lin([55, 16], [55, 126], 16)],
+    2: () => [cat(bez([22, 42], [24, 4], [80, 4], [78, 44], 14), bez([78, 44], [76, 72], [30, 96], [22, 126], 14), lin([22, 126], [82, 126], 8))],
+    3: () => [cat(bez([22, 30], [30, 4], [78, 4], [75, 40], 14), bez([75, 40], [73, 58], [52, 66], [42, 68], 10), bez([42, 68], [82, 68], [86, 116], [50, 128], 14), bez([50, 128], [34, 132], [22, 120], [20, 104], 8))],
+    4: () => [lin([66, 126], [66, 16], 12), lin([66, 16], [18, 92], 12), lin([18, 92], [86, 92], 8)],
+    5: () => [cat(lin([76, 16], [32, 16], 8), lin([32, 16], [27, 64], 8), bez([27, 64], [46, 50], [84, 58], [80, 92], 14), bez([80, 92], [78, 126], [36, 136], [20, 112], 14))],
+    6: () => [cat(bez([72, 16], [34, 24], [22, 70], [24, 100], 14), arc(50, 100, 27, 27, 180, 540, 30))],
+    7: () => [lin([22, 16], [80, 16], 8), lin([80, 16], [42, 128], 14)],
+    8: () => [arc(50, 40, 24, 25, 90, 450, 26), arc(50, 96, 29, 31, -90, 270, 28)],
+    9: () => [cat(arc(50, 44, 28, 29, 20, 380, 30), bez([77, 52], [78, 84], [66, 114], [32, 126], 14))],
+  };
+  const digitPaths = (d, cx, cy, s) => DIGITS[d]().map(pts => pts.map(([x, y]) => [cx + (x - 50) * s, cy + (y - 70) * s]));
+  // a disc scribbled in with a spiral marker pass, an ink ring around it and the number on top
+  function badge(d, filled) {
+    return (ww, r) => {
+      const cx = 80, cy = 80, R = 56, items = [];
+      if (filled) {
+        const fw = 15, turns = R / (fw * .8), n = 420;
+        items.push({ pts: Array.from({ length: n }, (_, i) => { const t = i / (n - 1), a = t * turns * Math.PI * 2, rr = R * t; return [cx + rr * Math.cos(a), cy + rr * Math.sin(a)]; }), still: true, single: true, w: fw, op: .93, cap: 'round' });
+      }
+      const ring = arc(cx, cy, R + 4, R + 4, -110, 270 + 20, 70);
+      items.push({ pts: ring, color: filled ? INK : undefined, w: Math.max(3, ww * .7), single: true, wob: .6 });
+      digitPaths(d, cx, cy, .55).forEach(pts => items.push({ pts, color: filled ? INK : undefined, w: Math.max(3, ww * .9), single: true, wob: .35 }));
+      return items;
+    };
+  }
+  const BADGES = {};
+  for (let d = 1; d <= 9; d++) { BADGES['badge-' + d] = { dims: [160, 160], paths: badge(d, true) }; }
+  for (let d = 1; d <= 9; d++) { BADGES['ring-' + d] = { dims: [160, 160], paths: badge(d, false) }; }
+
+  const rayLine = (cx, cy, deg, r1, r2) => { const a = deg * Math.PI / 180; return lin([cx + r1 * Math.cos(a), cy + r1 * Math.sin(a)], [cx + r2 * Math.cos(a), cy + r2 * Math.sin(a)], 6); };
+
   const GEN = {
     box: {
       box:           { dims: [400, 100], paths: (ww, r) => boxLines(400, 100, ww, r) },
@@ -194,6 +257,30 @@
       'speech-box':    { dims: [BW, BH], paths: (ww, r) => bubRect(ww, r, false) },
       'speech-box-right': { dims: [BW, BH], paths: (ww, r) => bubRect(ww, r, true) },
       'whisper':       { dims: [BW, BH], paths: (ww, r) => bubOval(ww, r, false).map(pts => ({ pts, dash: dashW })) },
+    },
+    band: {
+      band:         { dims: [400, 100], paths: band(400, 100) },
+      'band-tilt':  { dims: [400, 100], paths: band(400, 100, -2.5) },
+      'band-short': { dims: [300, 90],  paths: band(300, 90) },
+      'band-tall':  { dims: [400, 150], paths: band(400, 150) },
+      'band-label': { dims: [260, 80],  paths: band(260, 80, 1.5) },
+      card:         { dims: [300, 200], paths: card(300, 200, 0, false) },
+      'card-tilt':  { dims: [300, 200], paths: card(300, 200, -3, false) },
+      'card-tape':  { dims: [300, 200], paths: card(300, 200, 1.5, true) },
+      'card-wide':  { dims: [400, 130], paths: card(400, 130, 0, false) },
+      'card-small': { dims: [260, 110], paths: card(260, 110, -2, false) },
+    },
+    number: BADGES,
+    accent: {
+      'rays-ring':  { dims: [200, 200], paths: (ww, r) => Array.from({ length: 12 }, (_, i) => rayLine(100, 100, i * 30 + jit(r, 6), 60 + jit(r, 4), 90 + jit(r, 8))) },
+      'rays-fan':   { dims: [200, 200], paths: (ww, r) => Array.from({ length: 5 }, (_, i) => rayLine(60, 150, -80 + i * 17, 70 + jit(r, 4), 110 + jit(r, 14))) },
+      'rays-corner':{ dims: [200, 200], paths: (ww, r) => [-60, -30, 0].map(d => rayLine(40, 160, d - 20, 60, 100 + jit(r, 10))) },
+      'ticks-sides':{ dims: [400, 100], paths: (ww, r) => [-26, 0, 26].flatMap(d => [rayLine(92, 50, d + 180, 28, 62 + jit(r, 8)), rayLine(308, 50, d, 28, 62 + jit(r, 8))]) },
+      'ticks-trio': { dims: [200, 200], paths: (ww, r) => [-38, 0, 38].map(d => rayLine(46, 100, d, 40, 86 + jit(r, 10))) },
+      crown:        { dims: [200, 200], paths: () => [poly([[34, 152], [26, 70], [66, 108], [100, 46], [134, 108], [174, 70], [166, 152], [34, 152]], 10)] },
+      checkbox:     { dims: [200, 200], paths: (ww, r) => [...boxLines2(46, 56, 154, 164, r), cat(bez([68, 108], [82, 118], [92, 134], [100, 148], 12), bez([100, 148], [118, 98], [140, 54], [178, 26], 20))] },
+      'big-x':      { dims: [200, 200], paths: (ww, r) => [lin([30, 36 + jit(r)], [172, 168 + jit(r)]), lin([172, 34 + jit(r)], [28 + jit(r), 170])] },
+      underline:    { dims: [400, 100], paths: (ww, r) => [lin([30, 52 + jit(r, 2)], [370, 48 + jit(r, 2)], 30), lin([60, 70 + jit(r, 2)], [330, 67 + jit(r, 2)], 30)].map((pts, i) => ({ pts, w: i ? Math.max(2, ww * .6) : ww })) },
     },
     connector: {
       dots:         { dims: [400, 100], paths: () => [lin([40, 50], [360, 50], 40), dot(40, 50), dot(360, 50)] },
@@ -249,10 +336,12 @@
       const r = rng(seed * 7 + 1);
       def.paths(lw, r).forEach((it, k) => {
         const o2 = it.pts ? it : { pts: it };
-        for (let p = 0; p < (o2.dot ? 1 : pen.passes); p++) {
-          let pts = o2.still ? o2.pts : wob(o2.pts, seed + k * 13 + p * 29, pen.wobble * .7);
+        // per-item overrides: color (fixed ink / paper tones), w (absolute width), op, cap, single (one pass, e.g. marker fills)
+        for (let p = 0; p < (o2.dot || o2.single ? 1 : pen.passes); p++) {
+          let pts = o2.still ? o2.pts : wob(o2.pts, seed + k * 13 + p * 29, pen.wobble * (o2.wob == null ? .7 : o2.wob));
           if (p) pts = pts.map(([x, y]) => [x, y + .8]);
-          body += `<path d="${D(pts)}" fill="none" stroke="${color}" stroke-width="${f((o2.mul || 1) * (p ? ww * .8 : ww))}" stroke-opacity="${p ? pen.op * .75 : pen.op}" stroke-linecap="round" stroke-linejoin="round"${o2.dash ? ` stroke-dasharray="${o2.dash(ww)}"` : ''}${filt}/>`;
+          const sw = o2.w != null ? o2.w : (o2.mul || 1) * (p ? ww * .8 : ww), op = o2.op != null ? o2.op : (p ? pen.op * .75 : pen.op);
+          body += `<path d="${D(pts)}" fill="none" stroke="${o2.color || color}" stroke-width="${f(sw)}" stroke-opacity="${op}" stroke-linecap="${o2.cap || 'round'}" stroke-linejoin="round"${o2.dash ? ` stroke-dasharray="${o2.dash(ww)}"` : ''}${filt}/>`;
         }
       });
     } else if (isRing) {
@@ -302,6 +391,9 @@
       strike:    { label: 'strike-out',     variants: Object.keys(GEN.strike),    pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 24, 6] },
       mark:      { label: 'marks',          variants: Object.keys(GEN.mark),      pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [3, 24, 8] },
       bubble:    { label: 'speech bubbles', variants: Object.keys(GEN.bubble),    pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 16, 5] },
+      band:      { label: 'bands & cards', variants: Object.keys(GEN.band),   pens: ['brush', 'felt', 'chalk', 'crayon', 'pencil', 'pen'], width: [12, 48, 26] },
+      number:    { label: 'numbers',        variants: Object.keys(GEN.number), pens: ['pen', 'felt', 'brush', 'pencil', 'chalk', 'crayon'], width: [3, 20, 8] },
+      accent:    { label: 'accents',        variants: Object.keys(GEN.accent), pens: ['pen', 'felt', 'brush', 'pencil', 'chalk', 'crayon'], width: [2, 18, 6] },
       connector: { label: 'connectors',     variants: Object.keys(GEN.connector), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 16, 5] },
       circle: { label: 'circle & oval', variants: Object.keys(RINGS), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 30, 6] },
       underline: { label: 'underline & lines', variants: Object.keys(UNDERLINE), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 30, 7] },
