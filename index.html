@@ -1348,6 +1348,13 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-import-btn:hover { background: #ececec; }
 #r2-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
 #r2-modal.open { display: flex; }
+#sfx-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
+#sfx-modal.open { display: flex; }
+.sfx-group { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 6px 0 -2px; }
+.sfx-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
+.sfx-row .sfx-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+.sfx-row .sfx-name small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+.sfx-row .sfx-dur { font-size: 11px; color: var(--muted); width: 34px; text-align: right; }
 #ar-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
 #ar-modal.open { display: flex; }
 .ar-colors { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -4228,6 +4235,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <input type="file" id="tl-file" accept="audio/*" multiple style="display:none" onchange="tlAddFiles(this.files); this.value=''">
       <button class="tl-btn" onclick="tlAddTrack()">+ Track</button>
       <button class="tl-btn" onclick="tlOpenR2()" title="Pick narration from the narration/ folder of your R2 bucket">R2 narration</button>
+      <button class="tl-btn" onclick="openSfxModal()" title="Writing, whoosh, pop, chime… sound effects for the timeline">Sound effects</button>
       <button class="tl-btn tl-icon-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)" aria-label="Mute preview"></button>
       <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="updateRangeFill(this);tlSetZoom(+this.value)"></div>
     </div>
@@ -4695,6 +4703,14 @@ input[type="number"]:focus { border-color: var(--accent); }
   </div>
 </div>
 
+
+<div id="sfx-modal" onclick="if(event.target===this)closeSfxModal()">
+  <div class="r2-card" role="dialog" aria-label="Sound effects">
+    <div class="r2-head"><span>Sound effects</span><button class="r2-close" onclick="closeSfxModal()" aria-label="Close">✕</button></div>
+    <div class="r2-body" id="sfx-body"></div>
+    <div class="r2-foot"><span class="r2-hint" style="flex:1">Real CC0 recordings for writing and page flips; chimes and pops are generated in your browser (credits in assets/sfx/CREDITS.md). Added to the active audio track, after its last clip; drag it where you want it.</span></div>
+  </div>
+</div>
 
 <div id="ar-modal" onclick="if(event.target===this)closeArrowsModal()">
   <div class="r2-card" role="dialog" aria-label="Arrows">
@@ -10491,6 +10507,44 @@ function _r2Get(path, asBlob) {
   });
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOUND EFFECTS — synthesized by assets/sfx/sfx.js, added to the timeline as ordinary audio clips
+// ═══════════════════════════════════════════════════════════════════════════
+const SFXUI = { loaded: false, src: null };
+function openSfxModal() {
+  document.getElementById('sfx-modal').classList.add('open');
+  if (SFXUI.loaded) return;
+  const body = document.getElementById('sfx-body'); body.innerHTML = '<div class="r2-msg">Loading…</div>';
+  const sc = document.createElement('script'); sc.src = 'assets/sfx/sfx.js';
+  sc.onload = () => { SFXUI.loaded = true; sfxRender(); };
+  sc.onerror = () => { body.innerHTML = '<div class="r2-msg err">Could not load assets/sfx/sfx.js</div>'; };
+  document.head.appendChild(sc);
+}
+function closeSfxModal() { document.getElementById('sfx-modal').classList.remove('open'); sfxStop(); }
+function sfxRender() {
+  let last = '', html = '';
+  for (const s of window.SFX.list) {
+    if (s.group !== last) { html += `<div class="sfx-group">${s.group}</div>`; last = s.group; }
+    html += `<div class="sfx-row"><div class="sfx-name">${s.name}<small>${s.desc}</small></div><span class="sfx-dur">${s.dur.toFixed(1)}s</span>`
+      + `<button class="r2-btn" onclick="sfxPreview('${s.id}')">▶ Play</button><button class="r2-btn primary" onclick="sfxAdd('${s.id}')">+ Add</button></div>`;
+  }
+  document.getElementById('sfx-body').innerHTML = html;
+}
+function sfxStop() { try { if (SFXUI.src) SFXUI.src.stop(); } catch (e) {} SFXUI.src = null; }
+async function sfxPreview(id) {
+  sfxStop();
+  const AC = window.AudioContext || window.webkitAudioContext; TL.actx = TL.actx || new AC();
+  if (TL.actx.state === 'suspended') await TL.actx.resume();
+  const src = TL.actx.createBufferSource(); src.buffer = await window.SFX.render(id); src.connect(TL.actx.destination); src.start(); SFXUI.src = src;
+}
+async function sfxAdd(id) {
+  try {
+    const buf = await window.SFX.render(id), name = window.SFX.list.find(s => s.id === id).name;
+    tlAddClip(buf, name, null, window.SFX.wav(buf));
+    showToast(name + ' added to the timeline');
+  } catch (e) { showToast('Could not add the sound'); }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ARROWS — SVG pack from assets/arrows (see tools/build-arrows.py); color / rotation are baked in before adding
