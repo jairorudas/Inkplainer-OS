@@ -10394,15 +10394,17 @@ const IC = {
     { prefix: 'fluent-emoji-flat',          label: 'Flat color',                mono: false },
     { prefix: 'fluent-emoji',               label: 'Color (3D)',                mono: false },
   ],
-  set: 0, color: '#111111', sel: new Set(), results: [], seq: 0, timer: null, ready: false,
+  set: 0, color: '#111111', sel: new Set(), results: [], bodies: {}, dim: [32, 32], seq: 0, timer: null, ready: false,
   chips: ['arrow', 'check mark', 'cross mark', 'star', 'heart', 'light bulb', 'warning', 'question mark', 'money', 'house', 'people', 'rocket'],
   swatches: ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#2563eb', '#7c3aed', '#ffffff'],
 };
-function icUrl(name, size) {
-  const set = IC.sets[IC.set], q = [];
-  if (set.mono) q.push('color=' + encodeURIComponent(IC.color));
-  if (size) q.push('height=' + size);
-  return `${IC.api}/${set.prefix}/${name}.svg` + (q.length ? '?' + q.join('&') : '');
+// One request per search brings the drawings of every result (Iconify's JSON endpoint); from then on the SVGs are
+// built here, so choosing a color or selecting icons costs no requests (the public API rate-limits per-icon requests).
+function icSvg(name, size) {
+  let body = IC.bodies[name] || '';
+  if (IC.sets[IC.set].mono) body = body.replace(/currentColor/g, IC.color);
+  const [w, h] = IC.dim;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"${size ? ` width="${size}" height="${Math.round(size * h / w)}"` : ''}>${body}</svg>`;
 }
 function icMsg(t, err) { const el = document.getElementById('ic-msg'); el.textContent = t || ''; el.classList.toggle('err', !!err); }
 function openIconsModal() {
@@ -10436,21 +10438,34 @@ async function icSearch() {
   if (!q) { icMsg(''); return; }
   icMsg('Searching…');
   try {
-    const res = await fetch(`${IC.api}/search?query=${encodeURIComponent(q)}&prefixes=${IC.sets[IC.set].prefix}&limit=96`);
+    const prefix = IC.sets[IC.set].prefix;
+    const res = await fetch(`${IC.api}/search?query=${encodeURIComponent(q)}&prefixes=${prefix}&limit=96`);
     if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
+    const names = ((await res.json()).icons || []).map(n => n.split(':')[1]);
+    let bodies = {}, dim = [32, 32];
+    if (names.length) {
+      const r2 = await fetch(`${IC.api}/${prefix}.json?icons=${names.join(',')}`);
+      if (!r2.ok) throw new Error(r2.status);
+      const j = await r2.json();
+      dim = [j.width || 32, j.height || 32];
+      Object.keys(j.icons || {}).forEach(k => { bodies[k] = j.icons[k].body; });
+    }
     if (id !== IC.seq) return;
-    IC.results = (data.icons || []).map(n => n.split(':')[1]);
+    IC.bodies = bodies; IC.dim = dim; IC.results = names.filter(n => bodies[n]);
     icMsg(IC.results.length ? '' : 'Nothing found. Try another word in English.');
-  } catch (e) { if (id === IC.seq) icMsg('Could not reach the icon service. Check your connection.', true); }
+  } catch (e) { if (id === IC.seq) icMsg(e.message === '429' ? 'The icon service is busy. Wait a minute and search again.' : 'Could not reach the icon service. Check your connection.', true); }
   icRender();
 }
 function icRender() {
   document.getElementById('ic-grid').innerHTML = IC.results.map(n =>
-    `<div class="ic-item${IC.sel.has(n) ? ' sel' : ''}" title="${n.replace(/-/g, ' ')}" onclick="icToggle('${n}')"><img loading="lazy" alt="${n}" src="${icUrl(n)}"></div>`).join('');
+    `<div class="ic-item${IC.sel.has(n) ? ' sel' : ''}" data-n="${n}" title="${n.replace(/-/g, ' ')}" onclick="icToggle('${n}')"><img alt="${n}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(icSvg(n))}"></div>`).join('');
+  icSelUi();
+}
+function icSelUi() {
+  document.querySelectorAll('#ic-grid .ic-item').forEach(el => el.classList.toggle('sel', IC.sel.has(el.dataset.n)));
   const b = document.getElementById('ic-add'); b.disabled = !IC.sel.size; b.textContent = IC.sel.size ? `Add selected (${IC.sel.size})` : 'Add selected';
 }
-function icToggle(n) { if (IC.sel.has(n)) IC.sel.delete(n); else IC.sel.add(n); icRender(); }
+function icToggle(n) { if (IC.sel.has(n)) IC.sel.delete(n); else IC.sel.add(n); icSelUi(); }
 // The SVG is drawn once into a large PNG so it behaves like any other image layer (effects, rotation, saving…).
 async function icAddSelected() {
   const names = [...IC.sel]; if (!names.length) return;
@@ -10458,7 +10473,7 @@ async function icAddSelected() {
   let n = 0;
   for (const name of names) {
     try {
-      const svg = await (await fetch(icUrl(name, 1024))).blob();
+      const svg = new Blob([icSvg(name, 1024)], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(svg), im = new Image();
       await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; });
       const c = document.createElement('canvas'); c.width = im.naturalWidth || 1024; c.height = im.naturalHeight || 1024;
