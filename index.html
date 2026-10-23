@@ -2040,6 +2040,7 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-sep { width: 1px; align-self: stretch; background: var(--border-hi); margin: 2px 2px; }
 .tl-icon-btn { width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted-hi); }
 .tl-icon-btn.muted { color: #e03131; background: #fdecec; border-color: #f3b4b4; }
+.tl-keep { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted-hi); cursor: pointer; white-space: nowrap; }
 .tl-label .tl-lname { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .tl-label.track { cursor: pointer; flex-wrap: wrap; align-content: center; row-gap: 3px; }
 .tl-label.track .tl-lname { min-width: 0; }
@@ -2053,8 +2054,9 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-label .tl-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 4px; opacity: 0; }
 .tl-label:hover .tl-x { opacity: 1; }
 .tl-label .tl-x:hover { color: #e03131; background: #fdecec; }
-.tl-inspector { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--border); min-height: 32px; color: var(--muted-hi); }
+.tl-inspector { display: flex; flex-wrap: wrap; row-gap: 4px; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--border); min-height: 32px; color: var(--muted-hi); }
 .tl-inspector input[type=range] { width: 90px; }
+.tl-inspector > span:not(.tl-inspector-name) { white-space: nowrap; }
 .tl-inspector select { font: inherit; font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--border-hi); background: var(--panel); }
 #bottom-bar { position: relative; }
 .rp-collapsed-hide { display: none !important; }
@@ -7862,6 +7864,9 @@ const TL = {
   buffers: new Map(),      // clip id -> AudioBuffer
   peaks: new Map(),        // clip id -> Float32Array (0..1)
   blobs: new Map(),        // clip id -> original audio file (kept so it can be saved with the project)
+  stretched: new Map(),    // clip id -> { rate, buf }: the clip re-timed to `rate` with its pitch kept (see tlStretchBuffer)
+  stretching: new Set(),   // clip ids being processed right now
+  stretchTok: new Map(),   // clip id -> counter, so a result for an outdated speed is dropped
   muted: false, exportDest: null,
   actx: null, nodes: [], t0: 0, raf: 0, playing: false,
 };
@@ -8048,12 +8053,17 @@ function tlInspector() {
   updateRangeFill(vol);
   const vl = document.createElement('span'); vl.textContent = vol.value + '%';
   const rate = document.createElement('select');
-  [0.75, 0.9, 1, 1.1, 1.25].forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r + '×'; if (r === c.rate) o.selected = true; rate.appendChild(o); });
-  rate.onchange = () => { pushUndoSnapshot(); c.rate = +rate.value; tlRender(); tlChanged(); };
-  const info = document.createElement('span'); info.textContent = `starts ${tlFmt(c.start)} · ends ${tlFmt(c.start + tlClipLen(c))} · ${tlClipLen(c).toFixed(1)} s`; info.style.marginLeft = 'auto';
+  [0.75, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.75, 2].forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r + '×'; if (r === c.rate) o.selected = true; rate.appendChild(o); });
+  if (![...rate.options].some(o => o.selected)) { const o = document.createElement('option'); o.value = c.rate; o.textContent = c.rate + '×'; o.selected = true; rate.appendChild(o); }   // a speed from an older project
+  rate.onchange = () => { pushUndoSnapshot(); c.rate = +rate.value; tlRender(); tlChanged(); tlPrepareClip(c); };
+  const keep = document.createElement('label'); keep.className = 'tl-keep'; keep.title = 'On: the voice keeps its natural pitch when sped up or slowed down. Off: faster = higher pitch.';
+  const keepBox = document.createElement('input'); keepBox.type = 'checkbox'; keepBox.checked = tlKeepPitch(c);
+  keepBox.onchange = () => { pushUndoSnapshot(); c.keep = keepBox.checked; tlChanged(); tlPrepareClip(c); tlInspector(); };
+  keep.append(keepBox, ' Keep voice pitch');
+  const info = document.createElement('span'); info.textContent = TL.stretching.has(c.id) ? 'processing speed…' : `starts ${tlFmt(c.start)} · ends ${tlFmt(c.start + tlClipLen(c))} · ${tlClipLen(c).toFixed(1)} s`; info.style.marginLeft = 'auto';
   const del = document.createElement('button'); del.className = 'tl-btn tl-danger'; del.textContent = 'Delete clip'; del.title = 'Delete this clip (Ctrl/Cmd+Z brings it back)'; del.onclick = () => tlRemoveClip(c.id);
   const lbl = t => { const s = document.createElement('span'); s.textContent = t; return s; };
-  box.append(name, lbl('Volume'), vol, vl, lbl('Speed'), rate, info, del);
+  box.append(name, lbl('Volume'), vol, vl, lbl('Speed'), rate, keep, info, del);
 }
 
 // -- interaction --
@@ -8144,6 +8154,80 @@ function tlPeaks(buf) {
   for (let i = 0; i < n; i++) { let m = 0; for (let j = i * win; j < Math.min(data.length, (i + 1) * win); j += 8) m = Math.max(m, Math.abs(data[j])); peaks[i] = m; }
   return peaks;
 }
+// ── Speed without the "chipmunk" voice ──────────────────────────────────────────────────────────
+// A clip's `rate` makes it play faster or slower. Changing only the playback rate also shifts the pitch, so with
+// "Keep voice pitch" on, the clip is re-timed instead: WSOLA (waveform-similarity overlap-add) lays short Hann-windowed
+// frames taken from the input at `rate` times the output hop, each nudged (up to ~12 ms) to the spot that best
+// continues the previous frame. The result is a normal AudioBuffer that plays at rate 1.
+async function tlStretchBuffer(buf, rate) {
+  const sr = buf.sampleRate, nch = buf.numberOfChannels, len = buf.length;
+  const D = 4, N = Math.round(sr * 0.025 / D) * D, Hs = N / 2, tol = Math.round(sr * 0.012);   // N: ~25 ms, a multiple of 4
+  const inp = Array.from({ length: nch }, (_, c) => buf.getChannelData(c));
+  // mono, 4x decimated copy used only to search for the best frame position
+  const dlen = Math.floor(len / D), dec = new Float32Array(dlen);
+  for (let i = 0; i < dlen; i++) { let s = 0; for (let c = 0; c < nch; c++) { const ch = inp[c]; s += ch[i * D] + ch[i * D + 1] + ch[i * D + 2] + ch[i * D + 3]; } dec[i] = s / (nch * D); }
+  const win = new Float32Array(N); for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  const outLen = Math.floor(len / rate), out = Array.from({ length: nch }, () => new Float32Array(outLen + N));
+  const add = (start, pos, first) => {
+    for (let c = 0; c < nch; c++) {
+      const src = inp[c], dst = out[c];
+      for (let i = 0; i < N; i++) { const j = start + i; if (j >= len) break; dst[pos + i] += (first && i < Hs ? 1 : win[i]) * src[j]; }
+    }
+  };
+  add(0, 0, true);
+  let prev = 0;
+  const L = N / D;
+  for (let k = 1; k * Hs < outLen; k++) {
+    const ideal = Math.round(k * Hs * rate);
+    if (ideal >= len) break;
+    const natural = prev + Hs;                                    // where the previous frame's source would carry on
+    let best = Math.min(ideal, Math.max(0, len - N));
+    if (natural + N <= len && ideal + tol < len) {
+      const lo = Math.max(0, ideal - tol), hi = Math.min(len - N, ideal + tol), tg = Math.floor(natural / D);
+      let bestScore = -Infinity;
+      for (let sd = Math.ceil(lo / D); sd <= Math.floor(hi / D); sd++) {
+        let dot = 0, en = 1e-9;
+        for (let i = 0; i < L; i++) { const v = dec[sd + i]; dot += dec[tg + i] * v; en += v * v; }
+        const score = dot / Math.sqrt(en);                         // normalised: a loud frame must not win just for being loud
+        if (score > bestScore) { bestScore = score; best = sd * D; }
+      }
+    }
+    add(best, k * Hs, false); prev = best;
+    if (k % 250 === 0) await new Promise(r => setTimeout(r, 0));   // let the page breathe on long clips
+  }
+  const res = (TL.actx || new (window.AudioContext || window.webkitAudioContext)()).createBuffer(nch, Math.max(1, outLen), sr);
+  for (let c = 0; c < nch; c++) res.copyToChannel(out[c].subarray(0, outLen), c);
+  return res;
+}
+const tlKeepPitch = c => c.keep !== false;                         // projects saved before this existed get it too
+function tlStretchOf(c) {                                          // the re-timed buffer when it is ready, else null
+  const s = TL.stretched.get(c.id);
+  return tlKeepPitch(c) && c.rate !== 1 && s && s.rate === c.rate ? s.buf : null;
+}
+async function tlPrepareClip(c) {
+  const buf = TL.buffers.get(c.id);
+  if (!buf || !tlKeepPitch(c) || c.rate === 1) { TL.stretched.delete(c.id); TL.stretching.delete(c.id); return; }
+  const have = TL.stretched.get(c.id); if (have && have.rate === c.rate) return;
+  const rate = c.rate, tok = (TL.stretchTok.get(c.id) || 0) + 1; TL.stretchTok.set(c.id, tok);
+  TL.stretching.add(c.id); tlInspector();
+  try {
+    const res = await tlStretchBuffer(buf, rate);
+    if (TL.stretchTok.get(c.id) === tok) TL.stretched.set(c.id, { rate, buf: res });
+  } catch (e) { console.warn('Could not re-time the clip', e); }
+  finally { if (TL.stretchTok.get(c.id) === tok) { TL.stretching.delete(c.id); tlInspector(); } }
+}
+const tlPrepareAll = () => Promise.all(TL.tracks.flatMap(t => t.clips.map(tlPrepareClip)));
+// Starts a clip on `ctx` at time `when`, `skip` seconds into its (timeline) length.
+// Re-timed buffer: plays at rate 1 and its positions are the source positions divided by `rate`.
+function tlClipPlay(ctx, c, buf, when, skip, dest) {
+  const st = tlStretchOf(c), left = tlClipLen(c) - skip;
+  const src = ctx.createBufferSource(), gain = ctx.createGain();
+  src.buffer = st || buf; src.playbackRate.value = st ? 1 : c.rate; gain.gain.value = c.volume;
+  src.connect(gain); gain.connect(dest);
+  src.start(when, st ? c.trimIn / c.rate + skip : c.trimIn + skip * c.rate, st ? left : left * c.rate);
+  return src;
+}
+
 function tlAddClip(buf, name, trackId, blob) {
   pushUndoSnapshot();
   const track = TL.tracks.find(t => t.id === trackId) || tlActive();
@@ -8166,6 +8250,7 @@ function tlRemoveClip(id) {
   // The decoded audio stays in memory so Undo can bring the clip back; the saved copy is dropped now
   // (each clip owns its blob) and tlApplyMeta re-saves it if the clip returns.
   tlDeleteBlob(id);
+  TL.stretched.delete(id); TL.stretching.delete(id);
   if (TL.sel === id) TL.sel = null; tlRender(); tlChanged();
   showToast('Clip deleted — press Ctrl/Cmd+Z to undo');
 }
@@ -8208,11 +8293,7 @@ function tlPlayAudio(fromSec) {
     const buf = TL.buffers.get(c.id); if (!buf) return;
     const len = tlClipLen(c), end = c.start + len; if (end <= from) return;
     const skip = Math.max(0, from - c.start);                       // seconds of output already past
-    const src = TL.actx.createBufferSource(), gain = TL.actx.createGain();
-    src.buffer = buf; src.playbackRate.value = c.rate; gain.gain.value = c.volume;
-    src.connect(gain); gain.connect(TL.trackGains.get(tr.id));
-    src.start(t0 + Math.max(0, c.start - from), c.trimIn + skip * c.rate, (len - skip) * c.rate);
-    TL.nodes.push(src);
+    TL.nodes.push(tlClipPlay(TL.actx, c, buf, t0 + Math.max(0, c.start - from), skip, TL.trackGains.get(tr.id)));
   }));
   const tick = () => {
     if (!TL.playing) return;
@@ -8290,16 +8371,14 @@ async function tlPlanMp4Audio() {
   return null;
 }
 async function tlEncodeMp4Audio(plan, muxer, videoSec, runStartSec) {
+  await tlPrepareAll();                                            // clips with "Keep voice pitch" must be re-timed before they are mixed
   const endSec = Math.max(videoSec, runStartSec + tlAudioEnd());
   const off = new OfflineAudioContext(2, Math.ceil(endSec * TL_SR), TL_SR);
   TL.tracks.forEach(tr => {
     const tg = off.createGain(); tg.gain.value = tlTrackVol(tr); tg.connect(off.destination);
     tr.clips.forEach(c => {
     const buf = TL.buffers.get(c.id); if (!buf) return;
-    const src = off.createBufferSource(), gain = off.createGain();
-    src.buffer = buf; src.playbackRate.value = c.rate; gain.gain.value = c.volume;
-    src.connect(gain).connect(tg);
-    src.start(runStartSec + c.start, c.trimIn, c.trimOut - c.trimIn);
+    tlClipPlay(off, c, buf, runStartSec + c.start, 0, tg);
     });
   });
   const mixed = await off.startRendering();
@@ -8322,13 +8401,13 @@ async function tlEncodeMp4Audio(plan, muxer, videoSec, runStartSec) {
 function tlSerialize() {
   return {
     clipSeq: TL.clipId, trackSeq: TL.trackId,
-    tracks: TL.tracks.map(t => ({ id: t.id, name: t.name, volume: tlTrackVol(t), clips: t.clips.map(c => ({ id: c.id, name: c.name, start: c.start, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, rate: c.rate })) })),
+    tracks: TL.tracks.map(t => ({ id: t.id, name: t.name, volume: tlTrackVol(t), clips: t.clips.map(c => ({ id: c.id, name: c.name, start: c.start, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, rate: c.rate, keep: c.keep !== false })) })),
   };
 }
 function tlReset() {
   tlStopAudio(false);
   TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }]; TL.trackId = 1; TL.activeTrack = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
-  TL.buffers.clear(); TL.peaks.clear(); TL.blobs.clear(); tlRender();
+  TL.buffers.clear(); TL.peaks.clear(); TL.blobs.clear(); TL.stretched.clear(); TL.stretching.clear(); tlRender();
 }
 function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in memory, only the layout is swapped
   if (!meta || !meta.tracks) return;
@@ -8339,6 +8418,7 @@ function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in mem
   const live = new Set(TL.tracks.flatMap(t => t.clips.map(c => c.id)));
   TL.blobs.forEach((blob, id) => { if (live.has(id)) tlStoreBlob(id, blob); else tlDeleteBlob(id); });
   tlRender();
+  tlPrepareAll();                                                   // the speed of a clip may have changed with the undo
 }
 function tlBlobKey(projectId, clipId) { return projectId + ':' + clipId; }
 function tlStoreBlob(clipId, blob) {
@@ -8375,6 +8455,7 @@ async function tlRestore(meta, projectId) {
   }
   if (TL.tracks.some(t => t.clips.length)) document.getElementById('timeline-panel').classList.remove('collapsed');
   tlRender();
+  tlPrepareAll();                                                   // re-time the sped-up clips (plays at the old pitch until ready)
 }
 function tlChanged() { scheduleAutoSave(); }
 
