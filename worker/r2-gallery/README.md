@@ -6,15 +6,16 @@ A small Cloudflare Worker that lets Inkplainer list, import, upload and delete i
 | Endpoint | Needs | What it does |
 |---|---|---|
 | `GET /list` | `API_TOKEN` | Lists images under `PREFIX` (the `.trash/` folder is hidden) |
-| `GET /list?kind=audio` | `API_TOKEN` | Lists audio files under `AUDIO_PREFIX` (narration), read-only |
+| `GET /list?kind=audio` | `API_TOKEN` | Lists audio files under `AUDIO_PREFIX` (narration) |
 | `GET /file?key=` | `API_TOKEN` | Returns one image, or one narration file under `AUDIO_PREFIX` |
 | `PUT /file?key=` | `WRITE_TOKEN` | Uploads an image (max 20 MB, content is checked, no overwrite unless `&overwrite=1`) |
-| `DELETE /file?key=` | `WRITE_TOKEN` | Moves the image to `<PREFIX>.trash/<timestamp>/…`; nothing is erased |
+| `DELETE /file?key=` | `WRITE_TOKEN` | Moves the image to `<PREFIX>.trash/<timestamp>/…`, or a narration to `<AUDIO_PREFIX>.trash/<timestamp>/…`; nothing is erased |
+| `POST /rename?from=&to=` | `WRITE_TOKEN` | Renames a narration inside `AUDIO_PREFIX` (same extension, never overwrites an existing file, `409` if the new name is taken) |
 
 Safety notes
 - Two tokens: the read token cannot upload or delete; the write token cannot read. If `WRITE_TOKEN` is not set the Worker is read-only.
 - Every request needs `Authorization: Bearer <token>`; comparison is constant-time.
-- `AUDIO_PREFIX` (e.g. `narration/`) is strictly read-only: it can be listed and downloaded, never uploaded to or deleted.
+- `AUDIO_PREFIX` (e.g. `narration/`) can be listed and downloaded with the read token; with the write token its files can also be renamed and soft-deleted (to `<AUDIO_PREFIX>.trash/`). Audio upload is still not supported. **Redeploy the Worker (`npx wrangler deploy`) to get rename/delete for narrations; until then the app's Rename/Delete buttons answer with an error.**
 - CORS is limited to `ALLOWED_ORIGINS`; only `PREFIX` is reachable; only image files; `..`, `//`, and `.trash/` keys are refused.
 - Deleted images stay in the bucket under `.trash/`; remove them from the Cloudflare dashboard when you are sure.
 
