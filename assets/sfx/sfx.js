@@ -1,5 +1,5 @@
-// Sound-effects library for the timeline. Every sound is synthesized in the browser (Web Audio),
-// so there are no files to ship, no licences to credit, and it works offline.
+// Sound-effects library for the timeline. Writing and page-flip sounds are real CC0 recordings
+// (assets/sfx/audio, credits in assets/sfx/CREDITS.md); chimes, pops and clicks are synthesized with Web Audio.
 //   SFX.list                   -> [{ id, group, name, desc, dur }]
 //   await SFX.render(id)       -> AudioBuffer (cached)
 //   SFX.wav(audioBuffer)       -> Blob (16-bit PCM WAV, what the timeline stores and exports)
@@ -42,24 +42,15 @@
   }
 
   const DEFS = [
-    { id: 'pencil', group: 'Writing', name: 'Pencil writing', desc: 'Dry graphite scratching', dur: 3,
-      fn: ctx => writing(ctx, { dur: 3, seed: 3, hp: 1800, freq: 4200, q: .9, gain: .55, min: .12, max: .32, gap: .05 }) },
-    { id: 'marker', group: 'Writing', name: 'Marker writing', desc: 'Felt-tip with a light squeak', dur: 3,
-      fn: ctx => writing(ctx, { dur: 3, seed: 8, hp: 700, freq: 2000, q: 1.6, gain: .42, min: .25, max: .55, gap: .07, squeak: 1150, squeakGain: .05 }) },
-    { id: 'chalk', group: 'Writing', name: 'Chalk writing', desc: 'Grainy chalk on a board', dur: 3,
-      fn: ctx => { writing(ctx, { dur: 3, seed: 14, hp: 2400, freq: 5200, q: .6, gain: .6, min: .2, max: .45, gap: .08 });
-        const r = rng(21), n = noise(ctx, 3, 22), g = gain(ctx, 0); chain(n, filt(ctx, 'highpass', 4500), g, ctx.destination); n.start();
-        for (let t = .1; t < 2.9; t += .03 + r() * .09) { g.gain.setValueAtTime(.35 * r(), t); g.gain.setValueAtTime(0, t + .008); } } },
-    { id: 'eraser', group: 'Writing', name: 'Eraser rub', desc: 'Back-and-forth rubbing', dur: 1.6,
-      fn: ctx => { const n = noise(ctx, 1.6, 5), g = gain(ctx, 0); chain(n, filt(ctx, 'bandpass', 1500, .7), g, ctx.destination); n.start();
-        for (let i = 0; i < 9; i++) { const t = .05 + i * .165; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.5, t + .06); g.gain.linearRampToValueAtTime(0, t + .15); } } },
-    { id: 'whoosh', group: 'Motion', name: 'Whoosh', desc: 'Quick swipe, for slide-ins', dur: .8,
-      fn: ctx => { const n = noise(ctx, .8, 31), bp = filt(ctx, 'bandpass', 400, 1.1), g = gain(ctx, 0); chain(n, bp, g, ctx.destination); n.start();
-        bp.frequency.setValueAtTime(400, 0); bp.frequency.exponentialRampToValueAtTime(3600, .32); bp.frequency.exponentialRampToValueAtTime(700, .75);
-        g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(.8, .3); g.gain.linearRampToValueAtTime(0, .78); } },
-    { id: 'paper', group: 'Motion', name: 'Paper flip', desc: 'Page turn / paper rustle', dur: .7,
-      fn: ctx => { const r = rng(41), n = noise(ctx, .7, 42), g = gain(ctx, 0); chain(n, filt(ctx, 'highpass', 1200), filt(ctx, 'bandpass', 3000, .5), g, ctx.destination); n.start();
-        for (let t = .02; t < .6; t += .012 + r() * .03) { g.gain.setValueAtTime(r() * .55 * (1 - t), t); g.gain.setValueAtTime(0, t + .006); } } },
+    // Real recordings (CC0, see assets/sfx/CREDITS.md): `src` is fetched and decoded instead of synthesized.
+    { id: 'writing-1', group: 'Writing', name: 'Writing on paper 1', desc: 'Pencil / marker on paper', dur: 3.5, src: 'assets/sfx/audio/writing-1.mp3' },
+    { id: 'writing-2', group: 'Writing', name: 'Writing on paper 2', desc: 'Pencil / marker on paper', dur: 3.5, src: 'assets/sfx/audio/writing-2.mp3' },
+    { id: 'writing-3', group: 'Writing', name: 'Writing on paper 3', desc: 'Faster strokes on paper', dur: 3.5, src: 'assets/sfx/audio/writing-3.mp3' },
+    { id: 'scribble', group: 'Writing', name: 'Pencil scribble', desc: 'Pencil on cardboard', dur: 3.5, src: 'assets/sfx/audio/scribble.mp3' },
+    { id: 'pencil-short', group: 'Writing', name: 'Short pencil stroke', desc: 'One quick line', dur: 1.07, src: 'assets/sfx/audio/pencil-short.mp3' },
+    { id: 'page-flip-1', group: 'Motion', name: 'Page flip 1', desc: 'Book page turning', dur: .75, src: 'assets/sfx/audio/page-flip-1.mp3' },
+    { id: 'page-flip-2', group: 'Motion', name: 'Page flip 2', desc: 'Book page turning', dur: 1.11, src: 'assets/sfx/audio/page-flip-2.mp3' },
+    { id: 'page-flip-3', group: 'Motion', name: 'Page flip 3', desc: 'Book page turning', dur: 1.09, src: 'assets/sfx/audio/page-flip-3.mp3' },
     { id: 'pop', group: 'Pops & clicks', name: 'Pop', desc: 'Soft bubble pop, for items appearing', dur: .25,
       fn: ctx => { tone(ctx, 700, 0, .14, .7, 'sine', 160); const n = noise(ctx, .02, 51), g = gain(ctx, .3); chain(n, filt(ctx, 'highpass', 2500), g, ctx.destination); n.start(); g.gain.exponentialRampToValueAtTime(.001, .02); } },
     { id: 'click', group: 'Pops & clicks', name: 'Click', desc: 'Light tick, for buttons and steps', dur: .12,
@@ -79,13 +70,19 @@
   async function render(id) {
     if (cache.has(id)) return cache.get(id);
     const d = DEFS.find(x => x.id === id); if (!d) throw new Error('unknown sound ' + id);
-    const ctx = new OfflineAudioContext(1, Math.ceil(SR * d.dur), SR);
-    d.fn(ctx);
-    const buf = await ctx.startRendering();
-    // normalise to a comfortable peak and fade the last few ms so nothing clicks at the end
-    const data = buf.getChannelData(0); let m = 0; for (let i = 0; i < data.length; i++) m = Math.max(m, Math.abs(data[i]));
-    const k = m > 0 ? .8 / m : 1, fade = Math.min(data.length, Math.floor(SR * .012));
-    for (let i = 0; i < data.length; i++) data[i] *= k * (i > data.length - fade ? (data.length - i) / fade : 1);
+    let buf;
+    if (d.src) {
+      const res = await fetch(d.src); if (!res.ok) throw new Error('could not load ' + d.src);
+      buf = await new OfflineAudioContext(1, 1, SR).decodeAudioData(await res.arrayBuffer());
+    } else {
+      const ctx = new OfflineAudioContext(1, Math.ceil(SR * d.dur), SR);
+      d.fn(ctx);
+      buf = await ctx.startRendering();
+      // normalise to a comfortable peak and fade the last few ms so nothing clicks at the end
+      const data = buf.getChannelData(0); let m = 0; for (let i = 0; i < data.length; i++) m = Math.max(m, Math.abs(data[i]));
+      const k = m > 0 ? .8 / m : 1, fade = Math.min(data.length, Math.floor(SR * .012));
+      for (let i = 0; i < data.length; i++) data[i] *= k * (i > data.length - fade ? (data.length - i) / fade : 1);
+    }
     cache.set(id, buf); return buf;
   }
   function wav(buf) {
