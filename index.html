@@ -1348,6 +1348,20 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-import-btn:hover { background: #ececec; }
 #r2-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
 #r2-modal.open { display: flex; }
+#ar-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
+#ar-modal.open { display: flex; }
+.ar-colors { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ar-sw { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border-hi); cursor: pointer; padding: 0; }
+.ar-sw.on { box-shadow: 0 0 0 2px #6c63ff; }
+.ar-colors input[type=color] { width: 26px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; }
+.ar-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.ar-tab { padding: 3px 10px; font-size: 11px; border: 1px solid var(--border-hi); border-radius: 999px; background: var(--panel); cursor: pointer; color: var(--text); }
+.ar-tab.on { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+.ar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+.ar-item { aspect-ratio: 1; border: 2px solid transparent; border-radius: 9px; background: #fff; border-color: var(--border); cursor: pointer; padding: 6px; }
+.ar-item:hover { background: #f3f3f3; }
+.ar-item.sel { border-color: #6c63ff; }
+.ar-item svg { width: 100%; height: 100%; display: block; }
 .r2-card { width: min(760px, 94vw); max-height: 88vh; display: flex; flex-direction: column; background: #fff; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.35); overflow: hidden; }
 .r2-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
 .r2-head, .r2-foot { flex-shrink: 0; }
@@ -4346,6 +4360,10 @@ input[type="number"]:focus { border-color: var(--accent); }
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
         Import from R2
       </button>
+      <button class="r2-import-btn" onclick="openArrowsModal()" title="Pick an arrow, choose its color and add it to the board">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        Arrows
+      </button>
       </div>
 
       <!-- Background section -->
@@ -4676,6 +4694,28 @@ input[type="number"]:focus { border-color: var(--accent); }
   </div>
 </div>
 
+
+<div id="ar-modal" onclick="if(event.target===this)closeArrowsModal()">
+  <div class="r2-card" role="dialog" aria-label="Arrows">
+    <div class="r2-head"><span>Arrows</span><button class="r2-close" onclick="closeArrowsModal()" aria-label="Close">✕</button></div>
+    <div class="r2-body">
+      <div class="r2-row"><span class="r2-hint" style="margin:0">Color</span><div class="ar-colors" id="ar-colors"></div>
+        <span class="r2-hint" style="margin:0 0 0 10px">Rotate</span>
+        <select id="ar-rot" onchange="arRender()" style="padding:5px 8px;font:inherit;font-size:12px;border:1px solid var(--border-hi);border-radius:7px;background:var(--panel);color:var(--text)">
+          <option value="0">→ 0°</option><option value="45">↘ 45°</option><option value="90">↓ 90°</option><option value="135">↙ 135°</option><option value="180">← 180°</option><option value="225">↖ 225°</option><option value="270">↑ 270°</option><option value="315">↗ 315°</option>
+        </select>
+        <label style="width:auto;margin:0;font-size:12px;color:var(--text);display:flex;gap:4px;align-items:center"><input type="checkbox" id="ar-flip" onchange="arRender()"> Flip</label>
+      </div>
+      <div class="ar-tabs" id="ar-tabs"></div>
+      <div class="r2-msg" id="ar-msg"></div>
+      <div class="ar-grid" id="ar-grid"></div>
+    </div>
+    <div class="r2-foot">
+      <span class="r2-hint" style="flex:1">Click one or more arrows, then add them to the board.</span>
+      <button class="r2-btn primary" id="ar-add" onclick="arAddSelected()" disabled>Add selected</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ═══════════════════════════════════════════
@@ -10443,6 +10483,68 @@ function _r2Get(path, asBlob) {
   });
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARROWS — SVG pack from assets/arrows (see tools/build-arrows.py); color / rotation are baked in before adding
+// ═══════════════════════════════════════════════════════════════════════════
+const AR = { style: null, color: '#111111', sel: new Set(), loaded: false };
+const AR_COLORS = ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#0ea5e9', '#2563eb', '#9333ea', '#ec4899'];
+function arDarken(hex) { return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.substr(i, 2), 16) * .55).toString(16).padStart(2, '0')).join(''); }
+function arSvg(tpl, size) {
+  const rot = +document.getElementById('ar-rot').value, flip = document.getElementById('ar-flip').checked;
+  let inner = tpl.replace(/%C%/g, AR.color).replace(/%INK%/g, arDarken(AR.color));
+  if (rot || flip) inner = `<g transform="translate(100 100) rotate(${rot})${flip ? ' scale(1 -1)' : ''} translate(-100 -100)">${inner}</g>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 200 200">${inner}</svg>`;
+}
+function arMsg(t, err) { const el = document.getElementById('ar-msg'); el.textContent = t || ''; el.classList.toggle('err', !!err); }
+function openArrowsModal() {
+  document.getElementById('ar-modal').classList.add('open');
+  if (AR.loaded) { arRender(); return; }
+  arMsg('Loading…');
+  const sc = document.createElement('script'); sc.src = 'assets/arrows/arrows-data.js';
+  sc.onload = () => { AR.loaded = true; AR.style = Object.keys(window.ARROW_PACK)[0]; arMsg(''); arRenderColors(); arRender(); };
+  sc.onerror = () => arMsg('Could not load the arrow pack (assets/arrows/arrows-data.js).', true);
+  document.head.appendChild(sc);
+}
+function closeArrowsModal() { document.getElementById('ar-modal').classList.remove('open'); }
+function arRenderColors() {
+  document.getElementById('ar-colors').innerHTML = AR_COLORS.map(c => `<button class="ar-sw${c === AR.color ? ' on' : ''}" style="background:${c}" onclick="arSetColor('${c}')" aria-label="${c}"></button>`).join('')
+    + `<input type="color" value="${AR.color}" oninput="arSetColor(this.value)" title="Custom color">`;
+}
+function arSetColor(c) { AR.color = c; arRenderColors(); arRender(); }
+function arSetStyle(s) { AR.style = s; arRender(); }
+function arRender() {
+  if (!AR.loaded) return;
+  const pack = window.ARROW_PACK;
+  document.getElementById('ar-tabs').innerHTML = Object.keys(pack).map(s => `<button class="ar-tab${s === AR.style ? ' on' : ''}" onclick="arSetStyle('${s}')">${s}</button>`).join('');
+  document.getElementById('ar-grid').innerHTML = Object.entries(pack[AR.style].items).map(([n, tpl]) =>
+    `<div class="ar-item${AR.sel.has(AR.style + '/' + n) ? ' sel' : ''}" data-k="${AR.style}/${n}" title="${n}" onclick="arToggle('${AR.style}/${n}')">${arSvg(tpl, 120)}</div>`).join('');
+  arSelUi();
+}
+function arSelUi() {
+  document.querySelectorAll('#ar-grid .ar-item').forEach(el => el.classList.toggle('sel', AR.sel.has(el.dataset.k)));
+  const b = document.getElementById('ar-add'); b.disabled = !AR.sel.size; b.textContent = AR.sel.size ? `Add selected (${AR.sel.size})` : 'Add selected';
+}
+function arToggle(k) { if (AR.sel.has(k)) AR.sel.delete(k); else AR.sel.add(k); arSelUi(); }
+// Drawn once into a PNG so the arrow behaves like any other image layer (effects, rotation, saving…).
+async function arAddSelected() {
+  const keys = [...AR.sel]; if (!keys.length) return;
+  const b = document.getElementById('ar-add'); b.disabled = true; arMsg('Adding…');
+  let n = 0;
+  for (const k of keys) {
+    try {
+      const [style, name] = k.split('/');
+      const url = URL.createObjectURL(new Blob([arSvg(window.ARROW_PACK[style].items[name], 1024)], { type: 'image/svg+xml' })), im = new Image();
+      await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; });
+      const c = document.createElement('canvas'); c.width = c.height = 1024;
+      c.getContext('2d').drawImage(im, 0, 0, 1024, 1024); URL.revokeObjectURL(url);
+      const img = new Image(); await new Promise(ok => { img.onload = ok; img.src = c.toDataURL('image/png'); });
+      addLayer(img, 'arrow ' + name); n++;
+    } catch (e) { arMsg('Could not add ' + k, true); }
+  }
+  AR.sel.clear(); arRender();
+  if (n) { arMsg(''); showToast(n === 1 ? 'Arrow added' : n + ' arrows added'); closeArrowsModal(); }
+}
 
 function openR2Modal() {
   let saved = null;
