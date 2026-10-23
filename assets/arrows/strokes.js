@@ -19,10 +19,10 @@
 
   // ---- pens: SVG filters give the pencil / chalk / crayon grain and the dry-brush edge ----
   function rough(id, scale, freq, seed) {
-    return `<filter id="${id}" filterUnits="userSpaceOnUse" x="0" y="0" width="400" height="100"><feTurbulence type="fractalNoise" baseFrequency="${freq}" numOctaves="2" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="${scale}"/></filter>`;
+    return `<filter id="${id}" filterUnits="userSpaceOnUse" x="-100" y="-100" width="700" height="700"><feTurbulence type="fractalNoise" baseFrequency="${freq}" numOctaves="2" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="${scale}"/></filter>`;
   }
   function grain(id, scale, dfreq, gfreq, a, b, seed) {
-    return `<filter id="${id}" filterUnits="userSpaceOnUse" x="0" y="0" width="400" height="100"><feTurbulence type="fractalNoise" baseFrequency="${dfreq}" numOctaves="2" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="${scale}" result="d"/><feTurbulence type="fractalNoise" baseFrequency="${gfreq}" numOctaves="2" seed="${seed + 3}" result="g0"/><feColorMatrix in="g0" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${a} 0 0 0 ${b}" result="g"/><feComposite in="d" in2="g" operator="in"/></filter>`;
+    return `<filter id="${id}" filterUnits="userSpaceOnUse" x="-100" y="-100" width="700" height="700"><feTurbulence type="fractalNoise" baseFrequency="${dfreq}" numOctaves="2" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="${scale}" result="d"/><feTurbulence type="fractalNoise" baseFrequency="${gfreq}" numOctaves="2" seed="${seed + 3}" result="g0"/><feColorMatrix in="g0" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${a} 0 0 0 ${b}" result="g"/><feComposite in="d" in2="g" operator="in"/></filter>`;
   }
   const PENS = {
     // wobble = hand tremor, mul = width multiplier, op = opacity, passes = overlapped strokes (pencil / crayon look sketchy)
@@ -61,21 +61,60 @@
     scribble:   { pts: () => sample(t => { const k = (t * 22) % 1; return [X0 + SPAN * t, 50 + (Math.abs(k * 2 - 1) * 2 - 1) * .5 * 1]; }, 500), fill: true },
   };
 
+  // ---- hand-drawn rings: oval (wide, to circle a word / line of text) and circle ----
+  // turns > 1 makes the pen overshoot and cross its own start, like a real hand-drawn loop; drift makes the
+  // second lap land slightly outside the first instead of retracing it; tilt/start/dir vary the gesture.
+  const RINGS = {
+    oval:         { oval: true, turns: 1.08, drift: .07,  tilt: -1.5, start: -110, dir: 1 },
+    'oval-loop':  { oval: true, turns: 2.08, drift: .12,  tilt: 1.5,  start: -80,  dir: 1 },
+    'oval-open':  { oval: true, turns: .9,   drift: .04,  tilt: -2,   start: -60,  dir: 1 },
+    'oval-tilt':  { oval: true, turns: 1.12, drift: .09,  tilt: -4.5, start: -120, dir: -1 },
+    'oval-tight': { oval: true, turns: 1.06, drift: .05,  tilt: 1,    start: -150, dir: -1, ry: .8 },
+    circle:       { turns: 1.08, drift: .07, tilt: 0,  start: -120, dir: 1 },
+    'circle-loop':{ turns: 2.1,  drift: .11, tilt: 0,  start: -70,  dir: 1 },
+    'circle-open':{ turns: .9,   drift: .04, tilt: 0,  start: -50,  dir: -1 },
+    'circle-egg': { turns: 1.1,  drift: .08, tilt: -20, start: -140, dir: 1, squash: .88 },
+    'circle-doodle': { turns: 3.05, drift: .16, tilt: 0, start: -100, dir: 1 },
+  };
+  const dimsOf = (kind, variant) => kind === 'circle' && !(RINGS[variant] || {}).oval ? [200, 200] : [400, 100];
+
+  function ringPts(def, ww, seed) {
+    const [W, H] = def.oval ? [400, 100] : [200, 200], cx = W / 2, cy = H / 2;
+    const margin = ww / 2 + 5, drift = def.drift;
+    const rx = (W / 2 - margin) / (1 + drift), ry = ((H / 2 - margin) / (1 + drift)) * (def.ry || 1) * (def.squash || 1);
+    const r = rng(seed), p = [r() * 6.28, r() * 6.28], q = [r() * 6.28, r() * 6.28];
+    const tilt = def.tilt * Math.PI / 180, a0 = def.start * Math.PI / 180, total = def.turns * Math.PI * 2;
+    const n = Math.round(160 * def.turns);
+    return Array.from({ length: n + 1 }, (_, i) => {
+      const t = i / n, th = a0 + def.dir * total * t;
+      // radius grows along the stroke (spiral) with a little low-frequency wander, like an unsteady hand
+      const k = 1 + drift * t + .018 * Math.sin(th * 2 + p[0]) + .012 * Math.sin(th * 3 + p[1]);
+      const x = rx * k * Math.cos(th), y = ry * k * Math.sin(th) + (def.oval ? 0 : 0);
+      return [cx + x * Math.cos(tilt) - y * Math.sin(tilt), cy + x * Math.sin(tilt) + y * Math.cos(tilt)];
+    });
+  }
+
   function strokeSVG(kind, variant, o) {
     o = o || {};
     const color = o.color || '#111111', size = o.size || 400;
-    const isH = kind === 'highlight';
+    const isH = kind === 'highlight', isRing = kind === 'circle';
     const penKey = o.pen || (isH ? 'chisel' : 'pen');
     const pen = PENS[penKey] || PENS[isH ? 'chisel' : 'pen'];
     const w = o.width || (isH ? 34 : 7);
-    const def = (isH ? HIGHLIGHT : UNDERLINE)[variant] || (isH ? HIGHLIGHT.swipe : UNDERLINE.solid);
+    const def = isRing ? (RINGS[variant] || RINGS.oval) : (isH ? HIGHLIGHT : UNDERLINE)[variant] || (isH ? HIGHLIGHT.swipe : UNDERLINE.solid);
+    const [VW, VH] = dimsOf(kind, variant);
     const id = 'sf' + (++uid), seed = variant.length * 17 + penKey.length * 5 + 3;
     const defs = pen.filter ? pen.filter(id) : '';
     const filt = pen.filter ? ` filter="url(#${id})"` : '';
     const ww = w * pen.mul;
     let body = '';
 
-    if (isH) {
+    if (isRing) {
+      for (let p = 0; p < pen.passes; p++) {
+        const pts = wob(ringPts(def, ww, seed + p * 31), seed + p * 7, pen.wobble * .6).map(([x, y]) => [x, y + (p ? .8 : 0)]);
+        body += `<path d="${D(pts)}" fill="none" stroke="${color}" stroke-width="${f(p ? ww * .8 : ww)}" stroke-opacity="${p ? pen.op * .75 : pen.op}" stroke-linecap="round" stroke-linejoin="round"${filt}/>`;
+      }
+    } else if (isH) {
       let bands = [{ pts: def.pts(w), dy: 0, x: 0, op: pen.op }];
       if (def.twoPass) bands = [{ pts: def.pts(w), dy: -w * .16, x: 6, op: pen.op * .8 }, { pts: def.pts(w), dy: w * .16, x: -6, op: pen.op * .8 }];
       for (const b of bands) {
@@ -104,15 +143,17 @@
         }
       });
     }
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size / 4}" viewBox="0 0 400 100">${defs ? '<defs>' + defs + '</defs>' : ''}${body}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${f(size * VH / VW)}" viewBox="0 0 ${VW} ${VH}">${defs ? '<defs>' + defs + '</defs>' : ''}${body}</svg>`;
   }
 
   window.STROKES = {
     svg: strokeSVG,
     kinds: {
       highlight: { label: 'highlighter', variants: Object.keys(HIGHLIGHT), pens: ['chisel', 'round', 'hbrush', 'hcrayon'], width: [10, 80, 34] },
+      circle: { label: 'circle & oval', variants: Object.keys(RINGS), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 30, 6] },
       underline: { label: 'underline & lines', variants: Object.keys(UNDERLINE), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 30, 7] },
     },
+    dims: dimsOf,
     pens: PENS,
   };
 })();
