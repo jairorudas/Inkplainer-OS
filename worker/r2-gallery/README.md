@@ -26,7 +26,7 @@ Safety notes
 2. Secrets (type each value yourself; keep them out of git):
    - `npx wrangler secret put API_TOKEN`
    - `npx wrangler secret put WRITE_TOKEN` (optional; enables upload/delete)
-3. Variables in `wrangler.toml`: `PREFIX` (e.g. `production/`), `AUDIO_PREFIX` (e.g. `narration/`, optional) and `ALLOWED_ORIGINS` (the app's origins).
+3. Variables in `wrangler.toml`: `PREFIX` (empty = the whole bucket, so every project folder at the root shows up; or e.g. `production/` to restrict the app to one folder), `AUDIO_PREFIX` (e.g. `narration/`, optional) and `ALLOWED_ORIGINS` (the app's origins).
 4. In Inkplainer: Layers → **Import from R2**, enter the Worker URL and the token(s).
 
 The tokens are stored in this browser only if you tick *Remember on this device*.
