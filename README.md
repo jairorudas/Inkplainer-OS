@@ -382,7 +382,6 @@ See [PRIVACY.md](PRIVACY.md) for the full policy.
 
 ## Third-party
 
-- **Fluent Emoji** © Microsoft Corporation, MIT licence (https://github.com/microsoft/fluentui-emoji), searched through the open [Iconify](https://iconify.design) API from *Icons & emojis*. The icon you pick is downloaded and added as an image layer.
 
 - **animate.css** 4.1.1 (MIT, © 2020 Daniel Eden, https://animate.style/): its keyframes are converted to data in `animate-css-data.js` by `tools/build-animate-data.py` and played on the canvas.
 
