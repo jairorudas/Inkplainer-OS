@@ -1362,6 +1362,8 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .ar-item:hover { background: #f3f3f3; }
 .ar-item.sel { border-color: #6c63ff; }
 .ar-item svg { width: 100%; height: 100%; display: block; }
+.ar-grid.wide { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.ar-grid.wide .ar-item { aspect-ratio: 4 / 1; padding: 2px 8px; }
 .r2-card { width: min(760px, 94vw); max-height: 88vh; display: flex; flex-direction: column; background: #fff; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.35); overflow: hidden; }
 .r2-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
 .r2-head, .r2-foot { flex-shrink: 0; }
@@ -4360,9 +4362,9 @@ input[type="number"]:focus { border-color: var(--accent); }
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
         Import from R2
       </button>
-      <button class="r2-import-btn" onclick="openArrowsModal()" title="Pick an arrow, choose its color and add it to the board">
+      <button class="r2-import-btn" onclick="openArrowsModal()" title="Arrows, lines, highlighter and underline: choose color, thickness and pen, then add to the board">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-        Arrows
+        Arrows, lines &amp; highlighter
       </button>
       </div>
 
@@ -4699,12 +4701,18 @@ input[type="number"]:focus { border-color: var(--accent); }
   <div class="r2-card" role="dialog" aria-label="Arrows">
     <div class="r2-head"><span>Arrows</span><button class="r2-close" onclick="closeArrowsModal()" aria-label="Close">✕</button></div>
     <div class="r2-body">
-      <div class="r2-row"><span class="r2-hint" style="margin:0">Color</span><div class="ar-colors" id="ar-colors"></div>
-        <span class="r2-hint" style="margin:0 0 0 10px">Rotate</span>
+      <div class="r2-row"><span class="r2-hint" style="margin:0">Color</span><div class="ar-colors" id="ar-colors"></div></div>
+      <div class="r2-row" id="ar-rot-row">
+        <span class="r2-hint" style="margin:0">Rotate</span>
         <select id="ar-rot" onchange="arRender()" style="padding:5px 8px;font:inherit;font-size:12px;border:1px solid var(--border-hi);border-radius:7px;background:var(--panel);color:var(--text)">
           <option value="0">→ 0°</option><option value="45">↘ 45°</option><option value="90">↓ 90°</option><option value="135">↙ 135°</option><option value="180">← 180°</option><option value="225">↖ 225°</option><option value="270">↑ 270°</option><option value="315">↗ 315°</option>
         </select>
         <label style="width:auto;margin:0;font-size:12px;color:var(--text);display:flex;gap:4px;align-items:center"><input type="checkbox" id="ar-flip" onchange="arRender()"> Flip</label>
+      </div>
+      <div class="r2-row" id="ar-stroke-row" style="display:none">
+        <span class="r2-hint" style="margin:0">Thickness</span><input type="range" id="ar-width" style="flex:1;min-width:120px;max-width:220px" oninput="arSetWidth(this.value)"><span class="r2-hint" id="ar-width-val" style="margin:0;width:24px"></span>
+        <span class="r2-hint" style="margin:0 0 0 10px">Pen</span>
+        <select id="ar-pen" onchange="arSetPen(this.value)" style="padding:5px 8px;font:inherit;font-size:12px;border:1px solid var(--border-hi);border-radius:7px;background:var(--panel);color:var(--text)"></select>
       </div>
       <div class="ar-tabs" id="ar-tabs"></div>
       <div class="r2-msg" id="ar-msg"></div>
@@ -10487,13 +10495,17 @@ function _r2Get(path, asBlob) {
 // ═══════════════════════════════════════════════════════════════════════════
 // ARROWS — SVG pack from assets/arrows (see tools/build-arrows.py); color / rotation are baked in before adding
 // ═══════════════════════════════════════════════════════════════════════════
-const AR = { style: null, color: '#111111', sel: new Set(), loaded: false };
+const AR = { style: null, color: '#111111', sel: new Map(), loaded: false, width: { highlight: 34, underline: 7 }, pen: { highlight: 'chisel', underline: 'pen' } };
+const arIsStroke = s => s === 'highlight' || s === 'underline';
 const AR_COLORS = ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#0ea5e9', '#2563eb', '#9333ea', '#ec4899'];
 function arDarken(hex) { return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.substr(i, 2), 16) * .55).toString(16).padStart(2, '0')).join(''); }
-function arSvg(tpl, size) {
-  const rot = +document.getElementById('ar-rot').value, flip = document.getElementById('ar-flip').checked;
-  let inner = tpl.replace(/%C%/g, AR.color).replace(/%INK%/g, arDarken(AR.color));
-  if (rot || flip) inner = `<g transform="translate(100 100) rotate(${rot})${flip ? ' scale(1 -1)' : ''} translate(-100 -100)">${inner}</g>`;
+function arOpts() { return { color: AR.color, rot: +document.getElementById('ar-rot').value, flip: document.getElementById('ar-flip').checked }; }
+function arSvg(style, name, size, o) {
+  o = o || arOpts();
+  if (arIsStroke(style)) return window.STROKES.svg(style, name, { color: o.color, width: o.width || AR.width[style], pen: o.pen || AR.pen[style], size });
+  const tpl = window.ARROW_PACK[style].items[name];
+  let inner = tpl.replace(/%C%/g, o.color).replace(/%INK%/g, arDarken(o.color));
+  if (o.rot || o.flip) inner = `<g transform="translate(100 100) rotate(${o.rot})${o.flip ? ' scale(1 -1)' : ''} translate(-100 -100)">${inner}</g>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 200 200">${inner}</svg>`;
 }
 function arMsg(t, err) { const el = document.getElementById('ar-msg'); el.textContent = t || ''; el.classList.toggle('err', !!err); }
@@ -10501,10 +10513,10 @@ function openArrowsModal() {
   document.getElementById('ar-modal').classList.add('open');
   if (AR.loaded) { arRender(); return; }
   arMsg('Loading…');
-  const sc = document.createElement('script'); sc.src = 'assets/arrows/arrows-data.js';
-  sc.onload = () => { AR.loaded = true; AR.style = Object.keys(window.ARROW_PACK)[0]; arMsg(''); arRenderColors(); arRender(); };
-  sc.onerror = () => arMsg('Could not load the arrow pack (assets/arrows/arrows-data.js).', true);
-  document.head.appendChild(sc);
+  const load = src => new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+  Promise.all([load('assets/arrows/arrows-data.js'), load('assets/arrows/strokes.js')])
+    .then(() => { AR.loaded = true; AR.style = Object.keys(window.ARROW_PACK)[0]; arMsg(''); arRenderColors(); arRender(); })
+    .catch(() => arMsg('Could not load the arrow pack (assets/arrows).', true));
 }
 function closeArrowsModal() { document.getElementById('ar-modal').classList.remove('open'); }
 function arRenderColors() {
@@ -10513,37 +10525,56 @@ function arRenderColors() {
 }
 function arSetColor(c) { AR.color = c; arRenderColors(); arRender(); }
 function arSetStyle(s) { AR.style = s; arRender(); }
+function arStyles() { return [...Object.keys(window.ARROW_PACK), 'highlight', 'underline']; }
+function arLabel(st) { return arIsStroke(st) ? window.STROKES.kinds[st].label : st; }
+function arItems(st) { return arIsStroke(st) ? window.STROKES.kinds[st].variants : Object.keys(window.ARROW_PACK[st].items); }
+function arSetWidth(v) { AR.width[AR.style] = +v; arRender(); }
+function arSetPen(v) { AR.pen[AR.style] = v; arRender(); }
 function arRender() {
   if (!AR.loaded) return;
-  const pack = window.ARROW_PACK;
-  document.getElementById('ar-tabs').innerHTML = Object.keys(pack).map(s => `<button class="ar-tab${s === AR.style ? ' on' : ''}" onclick="arSetStyle('${s}')">${s}</button>`).join('');
-  document.getElementById('ar-grid').innerHTML = Object.entries(pack[AR.style].items).map(([n, tpl]) =>
-    `<div class="ar-item${AR.sel.has(AR.style + '/' + n) ? ' sel' : ''}" data-k="${AR.style}/${n}" title="${n}" onclick="arToggle('${AR.style}/${n}')">${arSvg(tpl, 120)}</div>`).join('');
+  const st = AR.style, stroke = arIsStroke(st);
+  document.getElementById('ar-tabs').innerHTML = arStyles().map(s => `<button class="ar-tab${s === st ? ' on' : ''}" onclick="arSetStyle('${s}')">${arLabel(s)}</button>`).join('');
+  document.getElementById('ar-rot-row').style.display = stroke ? 'none' : '';
+  const sr = document.getElementById('ar-stroke-row'); sr.style.display = stroke ? '' : 'none';
+  if (stroke) {
+    const k = window.STROKES.kinds[st], w = document.getElementById('ar-width');
+    w.min = k.width[0]; w.max = k.width[1]; w.value = AR.width[st]; document.getElementById('ar-width-val').textContent = AR.width[st];
+    document.getElementById('ar-pen').innerHTML = k.pens.map(p => `<option value="${p}"${p === AR.pen[st] ? ' selected' : ''}>${window.STROKES.pens[p].label}</option>`).join('');
+  }
+  const grid = document.getElementById('ar-grid'); grid.classList.toggle('wide', stroke);
+  grid.innerHTML = arItems(st).map(n =>
+    `<div class="ar-item${AR.sel.has(st + '/' + n) ? ' sel' : ''}" data-k="${st}/${n}" title="${n}" onclick="arToggle('${st}/${n}')">${arSvg(st, n, stroke ? 400 : 120)}</div>`).join('');
   arSelUi();
 }
 function arSelUi() {
   document.querySelectorAll('#ar-grid .ar-item').forEach(el => el.classList.toggle('sel', AR.sel.has(el.dataset.k)));
   const b = document.getElementById('ar-add'); b.disabled = !AR.sel.size; b.textContent = AR.sel.size ? `Add selected (${AR.sel.size})` : 'Add selected';
 }
-function arToggle(k) { if (AR.sel.has(k)) AR.sel.delete(k); else AR.sel.add(k); arSelUi(); }
+// each selected item keeps the color / thickness / pen / rotation it had when it was clicked
+function arToggle(k) {
+  if (AR.sel.has(k)) AR.sel.delete(k);
+  else AR.sel.set(k, Object.assign(arOpts(), { width: AR.width[k.split('/')[0]], pen: AR.pen[k.split('/')[0]] }));
+  arSelUi();
+}
 // Drawn once into a PNG so the arrow behaves like any other image layer (effects, rotation, saving…).
 async function arAddSelected() {
-  const keys = [...AR.sel]; if (!keys.length) return;
+  const keys = [...AR.sel.keys()]; if (!keys.length) return;
   const b = document.getElementById('ar-add'); b.disabled = true; arMsg('Adding…');
   let n = 0;
   for (const k of keys) {
     try {
       const [style, name] = k.split('/');
-      const url = URL.createObjectURL(new Blob([arSvg(window.ARROW_PACK[style].items[name], 1024)], { type: 'image/svg+xml' })), im = new Image();
+      const wide = arIsStroke(style), W = wide ? 1600 : 1024, H = wide ? 400 : 1024;
+      const url = URL.createObjectURL(new Blob([arSvg(style, name, W, AR.sel.get(k))], { type: 'image/svg+xml' })), im = new Image();
       await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; });
-      const c = document.createElement('canvas'); c.width = c.height = 1024;
-      c.getContext('2d').drawImage(im, 0, 0, 1024, 1024); URL.revokeObjectURL(url);
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      c.getContext('2d').drawImage(im, 0, 0, W, H); URL.revokeObjectURL(url);
       const img = new Image(); await new Promise(ok => { img.onload = ok; img.src = c.toDataURL('image/png'); });
-      addLayer(img, 'arrow ' + name); n++;
+      addLayer(img, (wide ? style : 'arrow') + ' ' + name); n++;
     } catch (e) { arMsg('Could not add ' + k, true); }
   }
   AR.sel.clear(); arRender();
-  if (n) { arMsg(''); showToast(n === 1 ? 'Arrow added' : n + ' arrows added'); closeArrowsModal(); }
+  if (n) { arMsg(''); showToast(n === 1 ? 'Added to the board' : n + ' added to the board'); closeArrowsModal(); }
 }
 
 function openR2Modal() {
