@@ -146,8 +146,10 @@ export default {
   },
 };
 
+// Path traversal is refused per path segment ("a/../b", "./x"); a file name that merely contains dots
+// ("voz..mp3", "take 2...wav") is legitimate and must not be refused.
 function safeKey(key, prefix) {
-  return key.startsWith(prefix) && !key.includes('..') && !key.startsWith('/') && !key.includes('//');
+  return key.startsWith(prefix) && !key.startsWith('/') && !key.includes('//') && !key.split('/').some(seg => seg === '.' || seg === '..');
 }
 
 // Cheap content sniffing so a renamed non-image can't be stored under an image name.
