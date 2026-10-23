@@ -11445,25 +11445,37 @@ async function r2DeleteAudio(it) {
   r2Render();
 }
 
+// What went wrong, in words: the browser's own message for a file it cannot decode is just "EncodingError".
+function _r2AudioReason(err, file) {
+  if (err && (err.name === 'EncodingError' || /decode/i.test(err.message || ''))) return `${file}: this browser cannot decode the file (unsupported format, or the file is damaged or empty)`;
+  return `${file}: ${(err && err.message) || 'unknown error'}`;
+}
 async function r2ImportAudio() {
   const keys = [...R2.selected];
   if (!keys.length) return;
   const btn = document.getElementById('r2-import'); btn.disabled = true;
-  let done = 0, failed = 0;
+  let done = 0, failed = 0; const reasons = [];
   for (const key of keys) {
     _r2Msg(`Adding ${done + failed + 1} of ${keys.length}…`);
+    // folder + file ("abertura · 01"): inside project folders many files share the same name
+    const parts = key.split('/'), file = parts.pop(), stem = file.replace(/\.[^.]+$/, ''), parent = parts.pop();
     try {
       const blob = await _r2Get('/file?key=' + encodeURIComponent(key), true);
-      // folder + file ("abertura · 01"): inside project folders many files share the same name
-      const parts = key.split('/'), stem = parts.pop().replace(/\.[^.]+$/, ''), parent = parts.pop();
       await tlAddBlob(blob, parent && parent !== 'narration' ? parent + ' · ' + stem : stem);
       done++;
-    } catch (err) { failed++; }
+    } catch (err) { failed++; reasons.push(_r2AudioReason(err, file)); console.warn('R2 narration not added:', key, err); }
+  }
+  btn.disabled = false;
+  if (!done) {                                                      // nothing was added: stay here so the reason can be read
+    _r2Msg('Could not add to the timeline. ' + reasons[0] + (reasons.length > 1 ? ` (and ${reasons.length - 1} more)` : '') + '.', true);
+    return;
   }
   R2.selected.clear();
   closeR2Modal();
-  showToast(failed ? `Added ${done}, ${failed} failed` : `Added ${done} narration${done !== 1 ? 's' : ''} to the timeline`);
-  btn.disabled = false;
+  const track = tlActive().name;
+  showToast(failed ? `Added ${done} to “${track}”; ${failed} failed. ${reasons[0]}` : `Added ${done} narration${done !== 1 ? 's' : ''} to the track “${track}”`, null, failed ? 7000 : 3500);
+  // new clips go after the last one of the active track, which can be far off-screen: bring the newest into view
+  setTimeout(() => { const el = document.querySelector('#tl-inner .tl-clip.sel'); if (el) el.scrollIntoView({ inline: 'center', block: 'nearest' }); }, 150);
 }
 
 async function r2ImportSelected() {
