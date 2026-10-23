@@ -2001,7 +2001,10 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-icon-btn { width: 28px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--muted-hi); }
 .tl-icon-btn.muted { color: #e03131; background: #fdecec; border-color: #f3b4b4; }
 .tl-label .tl-lname { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.tl-label.track { cursor: pointer; }
+.tl-label.track { cursor: pointer; flex-wrap: wrap; align-content: center; row-gap: 3px; }
+.tl-label.track .tl-lname { min-width: 0; }
+.tl-label.track .tl-tvol { flex: 0 0 100%; width: 100%; height: 12px; margin: 0; cursor: ew-resize; }
+.tl-label.track .tl-lname { flex: 1 1 0; }
 .tl-label.track:hover { background: rgba(0,0,0,.04); }
 .tl-label.active { background: rgba(47,158,68,.12); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 0 #2f9e44; }
 .tl-lane.active { background: rgba(47,158,68,.05); }
@@ -7768,7 +7771,7 @@ const TL = {
   defaultGroupSec: 4,      // used until a group has been played once
   gapSec: 0.2,             // pause between groups in the animation engine
   measured: {},            // group signature -> seconds, from the last play
-  tracks: [{ id: 1, name: 'Narration', clips: [] }],
+  tracks: [{ id: 1, name: 'Narration', volume: 1, clips: [] }],
   sel: null,               // selected clip id
   playhead: 0,
   clipId: 0, trackId: 1, activeTrack: 1,   // activeTrack: where new audio goes
@@ -7908,6 +7911,16 @@ function tlRender() {
       const x = document.createElement('button'); x.className = 'tl-x'; x.textContent = '✕'; x.title = 'Remove this track';
       x.onclick = () => tlRemoveTrack(trackId); d.appendChild(x);
     }
+    if (trackId !== undefined) {
+      const tr = TL.tracks.find(t => t.id === trackId), v = document.createElement('input');
+      v.type = 'range'; v.className = 'tl-tvol'; v.min = 0; v.max = 150; v.value = Math.round(tlTrackVol(tr) * 100);
+      v.title = 'Track volume: ' + v.value + '%  (multiplies the volume of every clip on this track)';
+      v.onclick = e => e.stopPropagation(); v.ondblclick = e => { e.stopPropagation(); pushUndoSnapshot(); v.value = 100; tlSetTrackVol(tr, 100); v.title = 'Track volume: 100%'; updateRangeFill(v); tlChanged(); };
+      v.onpointerdown = e => { e.stopPropagation(); pushUndoSnapshot(); };
+      v.oninput = () => { tlSetTrackVol(tr, +v.value); v.title = 'Track volume: ' + v.value + '%'; updateRangeFill(v); };
+      v.onchange = tlChanged;
+      d.appendChild(v); updateRangeFill(v);
+    }
     return d;
   };
   labels.appendChild(mk('Groups'));
@@ -8031,7 +8044,7 @@ function tlRemoveTrack(id) {
   if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
   tlRender(); tlChanged();
 }
-function tlAddTrack() { pushUndoSnapshot(); const t = { id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), clips: [] }; TL.tracks.push(t); TL.activeTrack = t.id; tlRender(); tlChanged(); }
+function tlAddTrack() { pushUndoSnapshot(); const t = { id: ++TL.trackId, name: 'Audio ' + (TL.tracks.length + 1), volume: 1, clips: [] }; TL.tracks.push(t); TL.activeTrack = t.id; tlRender(); tlChanged(); }
 async function tlAddFiles(files, trackId) {
   const AC = window.AudioContext || window.webkitAudioContext;
   TL.actx = TL.actx || new AC();
@@ -8086,6 +8099,12 @@ function tlRunMs() {
 // While recording, the export must not stop before the narration has finished.
 function tlAudioPending() { return state.recording && tlHasAudio() && state._runLog && tlRunMs() / 1000 < tlAudioEnd(); }
 
+// Each track has its own volume (0-150 %) that multiplies the volume of its clips.
+function tlTrackVol(tr) { return tr.volume == null ? 1 : tr.volume; }
+function tlSetTrackVol(tr, pct) {
+  tr.volume = pct / 100;
+  const g = TL.trackGains && TL.trackGains.get(tr.id); if (g) g.gain.value = tr.volume;   // live while playing
+}
 function tlGraphTarget() {
   if (TL.exportDest) return TL.exportDest;                 // recording a WebM: sound goes into the file only
   return TL.muted ? null : TL.actx.destination;
@@ -8099,13 +8118,15 @@ function tlPlayAudio(fromSec) {
   TL.actx.resume();
   const t0 = TL.actx.currentTime + 0.03, from = TL.playhead; TL.t0 = t0 - from; TL.playing = true;
   const out = tlGraphTarget(), endAt = tlAudioEnd();
+  TL.trackGains = new Map();
+  TL.tracks.forEach(tr => { const tg = TL.actx.createGain(); tg.gain.value = tlTrackVol(tr); if (out) tg.connect(out); TL.trackGains.set(tr.id, tg); });
   TL.tracks.forEach(tr => tr.clips.forEach(c => {
     const buf = TL.buffers.get(c.id); if (!buf) return;
     const len = tlClipLen(c), end = c.start + len; if (end <= from) return;
     const skip = Math.max(0, from - c.start);                       // seconds of output already past
     const src = TL.actx.createBufferSource(), gain = TL.actx.createGain();
     src.buffer = buf; src.playbackRate.value = c.rate; gain.gain.value = c.volume;
-    src.connect(gain); if (out) gain.connect(out);
+    src.connect(gain); gain.connect(TL.trackGains.get(tr.id));
     src.start(t0 + Math.max(0, c.start - from), c.trimIn + skip * c.rate, (len - skip) * c.rate);
     TL.nodes.push(src);
   }));
@@ -8187,13 +8208,16 @@ async function tlPlanMp4Audio() {
 async function tlEncodeMp4Audio(plan, muxer, videoSec, runStartSec) {
   const endSec = Math.max(videoSec, runStartSec + tlAudioEnd());
   const off = new OfflineAudioContext(2, Math.ceil(endSec * TL_SR), TL_SR);
-  TL.tracks.forEach(tr => tr.clips.forEach(c => {
+  TL.tracks.forEach(tr => {
+    const tg = off.createGain(); tg.gain.value = tlTrackVol(tr); tg.connect(off.destination);
+    tr.clips.forEach(c => {
     const buf = TL.buffers.get(c.id); if (!buf) return;
     const src = off.createBufferSource(), gain = off.createGain();
     src.buffer = buf; src.playbackRate.value = c.rate; gain.gain.value = c.volume;
-    src.connect(gain).connect(off.destination);
+    src.connect(gain).connect(tg);
     src.start(runStartSec + c.start, c.trimIn, c.trimOut - c.trimIn);
-  }));
+    });
+  });
   const mixed = await off.startRendering();
   let encErr = null;
   const enc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: e => { encErr = e; } });
@@ -8214,18 +8238,18 @@ async function tlEncodeMp4Audio(plan, muxer, videoSec, runStartSec) {
 function tlSerialize() {
   return {
     clipSeq: TL.clipId, trackSeq: TL.trackId,
-    tracks: TL.tracks.map(t => ({ id: t.id, name: t.name, clips: t.clips.map(c => ({ id: c.id, name: c.name, start: c.start, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, rate: c.rate })) })),
+    tracks: TL.tracks.map(t => ({ id: t.id, name: t.name, volume: tlTrackVol(t), clips: t.clips.map(c => ({ id: c.id, name: c.name, start: c.start, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, rate: c.rate })) })),
   };
 }
 function tlReset() {
   tlStopAudio(false);
-  TL.tracks = [{ id: 1, name: 'Narration', clips: [] }]; TL.trackId = 1; TL.activeTrack = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
+  TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }]; TL.trackId = 1; TL.activeTrack = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
   TL.buffers.clear(); TL.peaks.clear(); TL.blobs.clear(); tlRender();
 }
 function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in memory, only the layout is swapped
   if (!meta || !meta.tracks) return;
   TL.tracks = JSON.parse(JSON.stringify(meta.tracks)).map(t => ({ ...t, clips: t.clips.filter(c => TL.buffers.has(c.id)) }));
-  if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', clips: [] }];
+  if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }];
   if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
   // Clips that come back through undo/redo need their stored audio again; clips that went away lose it.
   const live = new Set(TL.tracks.flatMap(t => t.clips.map(c => c.id)));
@@ -8250,9 +8274,9 @@ function tlLoadBlob(projectId, clipId) {
 }
 async function tlRestore(meta, projectId) {
   if (!meta || !meta.tracks) return;
-  TL.tracks = meta.tracks.map(t => ({ id: t.id, name: t.name, clips: [] }));
+  TL.tracks = meta.tracks.map(t => ({ id: t.id, name: t.name, volume: t.volume == null ? 1 : t.volume, clips: [] }));
   TL.trackId = meta.trackSeq || Math.max(1, ...TL.tracks.map(t => t.id)); TL.clipId = meta.clipSeq || 0;
-  if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', clips: [] }];
+  if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }];
   const AC = window.AudioContext || window.webkitAudioContext; TL.actx = TL.actx || new AC();
   for (const t of meta.tracks) {
     for (const c of t.clips) {
