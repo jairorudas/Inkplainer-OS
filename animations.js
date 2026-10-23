@@ -1812,7 +1812,7 @@ function tickSlideIn() {
   ctx.restore();
   hctx.clearRect(0, 0, state.canvasW, state.canvasH);
   // Optional hand: grips the leading edge and pulls the image in, then lets go.
-  const slideHandStyle = layer.slideHandStyle && layer.slideHandStyle !== 'auto' ? layer.slideHandStyle : state.hand;
+  const slideHandStyle = 'custom7';   // Mickey: the only hand made for Slide In
   if (layer.slideHand && slideHandStyle !== 'ghost' && t < 1) {
     let tipX, tipY;
     if (state.slideDirection === 'right')       { tipX = x;               tipY = y + layer.h / 2; }
