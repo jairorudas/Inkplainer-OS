@@ -132,6 +132,28 @@
   const strikeLine = (tilt, n = 1) => (ww, r) => Array.from({ length: n }, (_, k) => lin([22, 50 + tilt + (k - (n - 1) / 2) * (ww * 1.6 + 8)], [378, 50 - tilt + (k - (n - 1) / 2) * (ww * 1.6 + 8) + jit(r, 4)]));
   const markDot = (x, y) => dot(x, y, 2.2);
 
+
+  // ---- speech bubbles (320x200 box; the tail points to the lower left, mirror = lower right) ----
+  const BW = 320, BH = 200;
+  const mirrorX = pts => pts.map(([x, y]) => [BW - x, y]);
+  function bubOval(ww, r, mir) {
+    const m = ww / 2 + 7, cx = BW / 2, cy = 80, rx = BW / 2 - m, ry = 74 - m + 4;
+    const on = d => [cx + rx * Math.cos(d * Math.PI / 180), cy + ry * Math.sin(d * Math.PI / 180)];
+    const A = on(104), B = on(138), tip = [58 + jit(r, 6), BH - m - 2];
+    const body = arc(cx, cy, rx, ry, 138, 138 + 360 - 34 + 6, 90); // from B round to A, a little overshoot
+    const path = cat(body, lin(A, tip, 10), lin(tip, B, 10));
+    return [mir ? mirrorX(path) : path];
+  }
+  function bubRect(ww, r, mir) {
+    const m = ww / 2 + 7, x0 = m, x1 = BW - m, y0 = m, y1 = 150, c = 28;
+    const path = cat(
+      lin([x0 + c + 10, y0], [x1 - c, y0]), arc(x1 - c, y0 + c, c, c, -90, 0), lin([x1, y0 + c], [x1, y1 - c]), arc(x1 - c, y1 - c, c, c, 0, 90),
+      lin([x1 - c, y1], [x0 + 110, y1]), lin([x0 + 110, y1], [x0 + 34 + jit(r, 6), BH - m - 2], 10), lin([x0 + 34, BH - m - 2], [x0 + 62, y1], 10), lin([x0 + 62, y1], [x0 + c, y1]),
+      arc(x0 + c, y1 - c, c, c, 90, 180), lin([x0, y1 - c], [x0, y0 + c]), arc(x0 + c, y0 + c, c, c, 180, 270), lin([x0 + c, y0 - 1], [x0 + c + 24, y0 - 2.5], 6));
+    return [mir ? mirrorX(path) : path];
+  }
+  const dashW = ww => `${f(ww * 3 + 6)} ${f(ww * 2 + 6)}`;
+
   const GEN = {
     box: {
       box:           { dims: [400, 100], paths: (ww, r) => boxLines(400, 100, ww, r) },
@@ -166,6 +188,13 @@
       burst:    { dims: [200, 200], paths: (ww, r) => Array.from({ length: 10 }, (_, i) => { const a = (i * 36 + jit(r, 10)) * Math.PI / 180, r1 = 38 + jit(r, 6), r2 = 84 - (i % 2) * 14 + jit(r, 8); return lin([100 + r1 * Math.cos(a), 100 + r1 * Math.sin(a)], [100 + r2 * Math.cos(a), 100 + r2 * Math.sin(a)], 8); }) },
       sparks:   { dims: [200, 200], paths: () => [-60, -20, 20].map(d => { const a = d * Math.PI / 180; return lin([60 + 38 * Math.cos(a), 100 + 38 * Math.sin(a)], [60 + 84 * Math.cos(a), 100 + 84 * Math.sin(a)], 8); }).concat([-20 + 180, -60 + 180, 20 + 180].map(d => { const a = d * Math.PI / 180; return lin([140 + 38 * Math.cos(a), 100 + 38 * Math.sin(a)], [140 + 84 * Math.cos(a), 100 + 84 * Math.sin(a)], 8); })) },
     },
+    bubble: {
+      'speech':        { dims: [BW, BH], paths: (ww, r) => bubOval(ww, r, false) },
+      'speech-right':  { dims: [BW, BH], paths: (ww, r) => bubOval(ww, r, true) },
+      'speech-box':    { dims: [BW, BH], paths: (ww, r) => bubRect(ww, r, false) },
+      'speech-box-right': { dims: [BW, BH], paths: (ww, r) => bubRect(ww, r, true) },
+      'whisper':       { dims: [BW, BH], paths: (ww, r) => bubOval(ww, r, false).map(pts => ({ pts, dash: dashW })) },
+    },
     connector: {
       dots:         { dims: [400, 100], paths: () => [lin([40, 50], [360, 50], 40), dot(40, 50), dot(360, 50)] },
       'dot-arrow':  { dims: [400, 100], paths: () => [lin([40, 50], [366, 50], 40), dot(40, 50), poly([[342, 32], [368, 50], [342, 68]], 8)] },
@@ -175,7 +204,6 @@
       'elbow-dots': { dims: [400, 100], paths: () => [poly([[40, 74], [150, 74], [150, 26], [360, 26]], 24), dot(40, 74), dot(360, 26)] },
     },
   };
-  const FLAT = ['box', 'brace', 'strike', 'mark', 'connector'];
 
   function ringPts(def, ww, seed) {
     const [W, H] = def.oval ? [400, 100] : [200, 200], cx = W / 2, cy = H / 2;
@@ -224,7 +252,7 @@
         for (let p = 0; p < (o2.dot ? 1 : pen.passes); p++) {
           let pts = o2.still ? o2.pts : wob(o2.pts, seed + k * 13 + p * 29, pen.wobble * .7);
           if (p) pts = pts.map(([x, y]) => [x, y + .8]);
-          body += `<path d="${D(pts)}" fill="none" stroke="${color}" stroke-width="${f((o2.mul || 1) * (p ? ww * .8 : ww))}" stroke-opacity="${p ? pen.op * .75 : pen.op}" stroke-linecap="round" stroke-linejoin="round"${filt}/>`;
+          body += `<path d="${D(pts)}" fill="none" stroke="${color}" stroke-width="${f((o2.mul || 1) * (p ? ww * .8 : ww))}" stroke-opacity="${p ? pen.op * .75 : pen.op}" stroke-linecap="round" stroke-linejoin="round"${o2.dash ? ` stroke-dasharray="${o2.dash(ww)}"` : ''}${filt}/>`;
         }
       });
     } else if (isRing) {
@@ -273,6 +301,7 @@
       brace:     { label: 'braces',         variants: Object.keys(GEN.brace),     pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 18, 5] },
       strike:    { label: 'strike-out',     variants: Object.keys(GEN.strike),    pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 24, 6] },
       mark:      { label: 'marks',          variants: Object.keys(GEN.mark),      pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [3, 24, 8] },
+      bubble:    { label: 'speech bubbles', variants: Object.keys(GEN.bubble),    pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 16, 5] },
       connector: { label: 'connectors',     variants: Object.keys(GEN.connector), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 16, 5] },
       circle: { label: 'circle & oval', variants: Object.keys(RINGS), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 30, 6] },
       underline: { label: 'underline & lines', variants: Object.keys(UNDERLINE), pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 30, 7] },
