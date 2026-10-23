@@ -7,6 +7,7 @@ A small Cloudflare Worker that lets Inkplainer list, import, upload and delete i
 |---|---|---|
 | `GET /list` | `API_TOKEN` | Lists images under `PREFIX` (the `.trash/` folder is hidden). With `&delimiter=/` it lists only one level and returns the sub-folders as `folders` (used to browse project by project) |
 | `GET /list?kind=audio` | `API_TOKEN` | Lists audio files under `AUDIO_PREFIX` (narration) |
+| `GET /list?kind=audio&tree=1&prefix=&delimiter=/` | `API_TOKEN` | Audio files and sub-folders anywhere under `PREFIX`, so narrations stored inside project folders (e.g. `<project>/assets/audios/pt-BR/<folder>/`) can be browsed. Omit `delimiter` to list everything below `prefix` |
 | `GET /file?key=` | `API_TOKEN` | Returns one image, or one narration file under `AUDIO_PREFIX` |
 | `PUT /file?key=` | `WRITE_TOKEN` | Uploads an image (max 20 MB, content is checked, no overwrite unless `&overwrite=1`) |
 | `DELETE /file?key=` | `WRITE_TOKEN` | Moves the image to `<PREFIX>.trash/<timestamp>/…`, or a narration to `<AUDIO_PREFIX>.trash/<timestamp>/…`; nothing is erased |
@@ -18,6 +19,7 @@ Safety notes
 - `AUDIO_PREFIX` (e.g. `narration/`) can be listed and downloaded with the read token; with the write token its files can also be renamed and soft-deleted (to `<AUDIO_PREFIX>.trash/`). Audio upload is still not supported. **Redeploy the Worker (`npx wrangler deploy`) to get rename/delete for narrations; until then the app's Rename/Delete buttons answer with an error.**
 - CORS is limited to `ALLOWED_ORIGINS`; only `PREFIX` is reachable; only image files; `..`, `//`, and `.trash/` keys are refused.
 - **Redeploy the Worker to get project-folder browsing.** The app still works with an older Worker (it falls back to grouping the flat list by folder), but only the new one pages folder by folder.
+- **Narrations can live inside project folders.** With `tree=1` audio is listed, read, renamed and soft-deleted anywhere under `PREFIX` (the legacy `AUDIO_PREFIX` folder keeps working). Redeploy the Worker for this; an older Worker only exposes `AUDIO_PREFIX` and the app falls back to it.
 - Deleted images stay in the bucket under `.trash/`; remove them from the Cloudflare dashboard when you are sure.
 
 ## Setup

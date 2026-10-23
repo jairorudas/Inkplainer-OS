@@ -1407,6 +1407,8 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-item.audio .r2-tick { top: 50%; transform: translateY(-50%); left: 9px; }
 .r2-item.audio .r2-name { padding: 0; flex: 1; font-size: 12px; }
 .r2-item.audio .r2-meta { font-size: 10px; color: var(--muted); }
+.r2-item.audio.folder { padding-left: 12px; gap: 8px; background: #f4f1ff; }
+.r2-item.audio.folder .r2-name { font-weight: 600; }
 .r2-item.audio .r2-act { border: 1px solid var(--border-hi); background: var(--panel); color: var(--text); border-radius: 5px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer; }
 .r2-item.audio .r2-act.danger { color: #dc2626; border-color: #f3b4b4; }
 .r2-item.audio .r2-act:disabled { opacity: .45; cursor: default; }
@@ -4714,7 +4716,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <div id="r2-browser" style="display:none">
         <div class="r2-row" style="margin-bottom:8px"><button class="r2-btn primary" id="r2-mode-images" onclick="r2SetMode('images')">Images</button><button class="r2-btn" id="r2-mode-audio" onclick="r2SetMode('audio')">Narration</button><span style="flex:1"></span><button class="r2-btn" id="r2-sync" onclick="r2Sync()" title="Fetch what changed in the bucket: new images, new project folders, new narrations">⟳ Sync</button><button class="r2-btn" id="r2-conn-btn" onclick="r2ToggleConnect()" title="Change the Worker URL or the tokens">Connection</button></div>
         <div class="r2-crumbs" id="r2-crumbs"></div>
-        <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter this folder…" oninput="r2Render()"></div>
+        <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter this folder…" oninput="r2Render()"><label class="r2-check" style="width:auto;margin:0;font-size:11px;display:flex;gap:4px;align-items:center;white-space:nowrap" title="List everything below this folder, not only its own files"><input type="checkbox" id="r2-flat" onchange="r2SetFlat(this.checked)"> Include subfolders</label></div>
         <div class="r2-row" id="r2-tools" style="margin-top:8px">
           <input type="text" id="r2-folder" value="uploads" placeholder="Folder for uploads" style="max-width:170px" title="Folder (inside the Worker's prefix) that new photos go to" autocomplete="off" spellcheck="false">
           <button class="r2-btn" id="r2-upload" onclick="document.getElementById('r2-upload-input').click()">Upload photos</button>
@@ -10567,7 +10569,7 @@ fileInput.addEventListener('change', ()=>{ loadDroppedFiles(fileInput.files); fi
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPORT FROM CLOUDFLARE R2 — talks to the read-only Worker (worker/r2-gallery)
 // ═══════════════════════════════════════════════════════════════════════════
-const R2 = { path: '', folders: [], legacy: false, meta: new Map(), url: '', token: '', wtoken: '', prefix: '', mode: 'images', connected: false, aitems: [], acursor: null, aprefix: '', aloaded: false, items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
+const R2 = { path: '', folders: [], legacy: false, apath: '', afolders: [], alegacy: false, flat: false, ameta: new Map(), meta: new Map(), url: '', token: '', wtoken: '', prefix: '', mode: 'images', connected: false, aitems: [], acursor: null, aprefix: '', aloaded: false, items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
 const R2_MAX_CONCURRENT = 4;
 
 function _r2Msg(text, isErr) {
@@ -10803,7 +10805,7 @@ async function r2Connect() {
   if (!token) { _r2Msg('Enter the access token.', true); return; }
   const btn = document.getElementById('r2-connect-btn');
   btn.disabled = true; _r2Msg('Connecting…');
-  R2.aitems = []; R2.acursor = null; R2.aloaded = false; R2.connected = false;
+  R2.aitems = []; R2.acursor = null; R2.aloaded = false; R2.connected = false; R2.apath = ''; R2.afolders = []; R2.alegacy = false; R2.ameta.clear();
   R2.url = url; R2.token = token; R2.wtoken = wtoken; R2.items = []; R2.cursor = null; R2.selected.clear();
   try {
     R2.legacy = false; R2.meta.clear(); R2.path = '';
@@ -10830,8 +10832,8 @@ async function r2LoadMore() {
   const btn = document.getElementById('r2-more'); btn.disabled = true;
   try {
     if (audio) {
-      const page = await _r2Get('/list?kind=audio&cursor=' + encodeURIComponent(R2.acursor));
-      R2.aitems.push(...page.items); R2.acursor = page.cursor; r2Render(); return;
+      const page = await _r2Level(R2.apath, R2.acursor, 'audio');
+      R2.aitems.push(...page.items); R2.afolders = _r2MergeFolders(R2.afolders, page.folders); R2.acursor = page.cursor; r2Render(); return;
     }
     const page = await _r2Level(R2.path, R2.cursor);
     R2.items.push(...page.items); R2.folders = _r2MergeFolders(R2.folders, page.folders); R2.cursor = page.cursor; r2Render();
@@ -10859,7 +10861,6 @@ function r2SetMode(mode) {
   document.getElementById('r2-tools-hint').style.display = audio ? 'none' : '';
   document.getElementById('r2-import').textContent = audio ? 'Add to timeline' : 'Import selected';
   document.getElementById('r2-filter').placeholder = audio ? 'Filter narrations…' : 'Filter this folder…';
-  document.getElementById('r2-crumbs').style.display = audio ? 'none' : '';
   document.getElementById('r2-grid').classList.toggle('audio', audio);
   _r2Msg('');
   if (!R2.connected) return;                       // the connect form is still showing
@@ -10868,24 +10869,60 @@ function r2SetMode(mode) {
 async function r2LoadAudio() {
   _r2Msg('Loading narrations…');
   try {
-    const page = await _r2Get('/list?kind=audio');
-    R2.aitems = page.items; R2.acursor = page.cursor; R2.aprefix = page.prefix || ''; R2.aloaded = true;
-    _r2Msg(page.items.length ? '' : 'No audio files found in the narration folder.');
+    const page = await _r2Level(R2.apath, null, 'audio');
+    R2.aitems = page.items; R2.afolders = _r2MergeFolders([], page.folders); R2.acursor = page.cursor; R2.aloaded = true;
+    _r2Msg(page.items.length || R2.afolders.length ? '' : R2.alegacy ? 'No audio files found in the narration folder.' : 'No audio files in this folder.');
     r2Render();
   } catch (err) { _r2Msg(err.message, true); }
+}
+// Shown name of a narration: relative to the open folder (or to the narration/ folder with an older Worker)
+function _r2AName(it) { return it.key.slice(R2.alegacy ? R2.aprefix.length : R2.prefix.length + R2.apath.length); }
+const _R2_FOLDER_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" style="flex-shrink:0;color:#6c63ff"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+// "3 folders · 5 audios" under a folder row, fetched lazily with at most 3 requests at a time
+async function _r2FillAudioFolderMeta(rows) {
+  let i = 0;
+  const worker = async () => {
+    while (i < rows.length) {
+      const { path, sub } = rows[i++];
+      let m = R2.ameta.get(path);
+      if (!m) {
+        try {
+          const page = await _r2Get('/list?kind=audio&tree=1&prefix=' + encodeURIComponent(path) + '&delimiter=%2F');
+          m = { audios: page.items.length, more: !!page.cursor, folders: (page.folders || []).length }; R2.ameta.set(path, m);
+        } catch (e) { continue; }
+      }
+      const parts = []; if (m.folders) parts.push(m.folders + (m.folders === 1 ? ' folder' : ' folders'));
+      if (m.audios || !m.folders) parts.push(m.audios + (m.more ? '+' : '') + (m.audios === 1 ? ' audio' : ' audios'));
+      if (sub.isConnected) sub.textContent = parts.join(' · ');
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
 }
 function r2RenderAudio() {
   const grid = document.getElementById('r2-grid');
   const q = document.getElementById('r2-filter').value.trim().toLowerCase();
   const items = R2.aitems.filter(it => !q || it.key.toLowerCase().includes(q));
+  const folders = R2.afolders.filter(f => !q || f.toLowerCase().includes(q));
   if (R2.io) { R2.io.disconnect(); R2.io = null; }
+  _r2Crumbs();
   grid.textContent = '';
+  const metaRows = [];
+  folders.forEach(path => {
+    const row = document.createElement('div');
+    row.className = 'r2-item audio folder'; row.title = path;
+    row.insertAdjacentHTML('beforeend', _R2_FOLDER_ICON);
+    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = path.replace(/\/$/, '').split('/').pop();
+    const sub = document.createElement('div'); sub.className = 'r2-meta'; sub.textContent = (R2.ameta.get(path) ? '' : '…');
+    row.append(name, sub); row.onclick = () => r2Go(path);
+    grid.appendChild(row); metaRows.push({ path, sub });
+  });
+  if (metaRows.length) _r2FillAudioFolderMeta(metaRows.slice(0, 60));
   items.forEach(it => {
     const row = document.createElement('div');
     row.className = 'r2-item audio' + (R2.selected.has(it.key) ? ' sel' : '');
     row.dataset.key = it.key; row.title = it.key;
     const tick = document.createElement('div'); tick.className = 'r2-tick'; tick.textContent = '✓';
-    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = '♪  ' + it.key.slice(R2.aprefix.length);
+    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = '♪  ' + _r2AName(it);
     const meta = document.createElement('div'); meta.className = 'r2-meta'; meta.textContent = (it.size / 1048576).toFixed(1) + ' MB';
     const ren = document.createElement('button'); ren.className = 'r2-act'; ren.textContent = 'Rename'; ren.disabled = !R2.wtoken;
     const del = document.createElement('button'); del.className = 'r2-act danger'; del.textContent = 'Delete'; del.disabled = !R2.wtoken;
@@ -10896,8 +10933,13 @@ function r2RenderAudio() {
     row.onclick = () => { R2.selected.has(it.key) ? R2.selected.delete(it.key) : R2.selected.add(it.key); row.classList.toggle('sel'); _r2UpdateCount(); };
     grid.appendChild(row);
   });
+  if (!folders.length && !items.length) {
+    const e = document.createElement('div'); e.className = 'r2-empty';
+    e.textContent = q ? 'Nothing here matches the filter.' : 'No audio files in this folder.';
+    grid.appendChild(e);
+  }
   document.getElementById('r2-more').style.display = R2.acursor ? '' : 'none';
-  _r2UpdateCount(items.length);
+  _r2UpdateCount(items.length, folders.length);
 }
 // ── Folder browsing: the bucket is organised as one folder per project ──
 // Paths are relative to the Worker's prefix and end with "/" ('' = the root, i.e. all projects).
@@ -10906,10 +10948,24 @@ function _r2MergeFolders(a, b) { return [...new Set([...a, ...(b || [])])].sort(
 
 // One page of one folder level. A Worker that knows `delimiter` answers with `folders`; an older one ignores it and
 // returns every image below the prefix, so the level is derived here (bounded to ~2000 images).
-async function _r2Level(path, cursor) {
-  const q = '/list?prefix=' + encodeURIComponent(path) + '&delimiter=%2F' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+async function _r2Level(path, cursor, kind) {
+  const audio = kind === 'audio';
+  // R2.flat ("Include subfolders") lists everything below the folder instead of one level
+  const q = '/list?' + (audio ? 'kind=audio&tree=1&' : '') + 'prefix=' + encodeURIComponent(path) + (R2.flat ? '' : '&delimiter=%2F') + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
   let page = await _r2Get(q);
+  if (audio) {
+    // `tree: true` marks a Worker that can browse narrations anywhere under PREFIX; an older one only knows the narration/ folder
+    if (!page.tree) {
+      R2.alegacy = true;
+      page = await _r2Get('/list?kind=audio' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
+      R2.aprefix = page.prefix || '';
+      return { items: page.items, cursor: page.cursor, folders: [] };
+    }
+    R2.alegacy = false; R2.aprefix = R2.prefix = page.prefix || R2.prefix;
+    return { items: page.items, cursor: page.cursor, folders: (page.folders || []).map(f => f.slice(R2.prefix.length)) };
+  }
   R2.prefix = page.prefix || R2.prefix;
+  if (R2.flat) return { items: page.items, cursor: page.cursor, folders: [] };
   if (Array.isArray(page.folders)) {
     return { items: page.items, cursor: page.cursor, folders: page.folders.map(f => f.slice(R2.prefix.length)) };
   }
@@ -10960,11 +11016,12 @@ async function r2Sync() {
   try {
     let found = [];
     if (R2.mode === 'audio') {
-      const before = new Set(R2.aitems.map(i => i.key));
-      const page = await _r2Get('/list?kind=audio');
-      R2.aitems = page.items; R2.acursor = page.cursor; R2.aprefix = page.prefix || ''; R2.aloaded = true;
-      const n = page.items.filter(i => !before.has(i.key)).length, gone = [...before].filter(k => !page.items.some(i => i.key === k)).length;
-      if (n) found.push(plural(n, 'new narration')); if (gone) found.push(plural(gone, 'narration') + ' removed');
+      const before = new Set(R2.aitems.map(i => i.key)), beforeF = new Set(R2.afolders);
+      const page = await _r2Level(R2.apath, null, 'audio');
+      R2.aitems = page.items; R2.afolders = _r2MergeFolders([], page.folders); R2.acursor = page.cursor; R2.aloaded = true; R2.ameta.clear();
+      const n = page.items.filter(i => !before.has(i.key)).length, nf = R2.afolders.filter(f => !beforeF.has(f)).length;
+      const gone = [...before].filter(k => !page.items.some(i => i.key === k)).length + [...beforeF].filter(f => !R2.afolders.includes(f)).length;
+      if (nf) found.push(plural(nf, 'new folder')); if (n) found.push(plural(n, 'new narration')); if (gone) found.push(plural(gone, 'item') + ' removed');
       r2Render();
     } else {
       const beforeKeys = new Set(R2.items.map(i => i.key)), beforeFolders = new Set(R2.folders);
@@ -10978,12 +11035,22 @@ async function r2Sync() {
   finally { btn.disabled = false; btn.textContent = '⟳ Sync'; }
 }
 function r2Go(path) {
+  document.getElementById('r2-filter').value = '';
+  if (R2.mode === 'audio') { R2.apath = path; r2LoadAudio(); return; }
   _r2Msg('Loading…');
   r2Open(path).then(() => _r2Msg('')).catch(err => _r2Msg(err.message, true));
 }
+function r2SetFlat(v) {
+  R2.flat = !!v;
+  if (R2.mode === 'audio') { r2LoadAudio(); return; }
+  _r2Msg('Loading…');
+  r2Open(R2.path, { keepFilter: true }).then(() => _r2Msg('')).catch(err => _r2Msg(err.message, true));
+}
 function _r2Crumbs() {
   const el = document.getElementById('r2-crumbs'); el.textContent = '';
-  const segs = R2.path.split('/').filter(Boolean);
+  const audio = R2.mode === 'audio';
+  el.style.display = audio && R2.alegacy ? 'none' : '';
+  const segs = (audio ? R2.apath : R2.path).split('/').filter(Boolean);
   const add = (label, path, cur) => {
     if (el.childNodes.length) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '›'; el.appendChild(s); }
     const b = document.createElement('button'); b.textContent = label; b.title = label;
@@ -11053,7 +11120,7 @@ function r2Render() {
     const thumb = document.createElement('div'); thumb.className = 'r2-thumb';
     thumb.appendChild(document.createElement('img'));
     const tick = document.createElement('div'); tick.className = 'r2-tick'; tick.textContent = '✓';
-    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = it.key.split('/').pop();
+    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = R2.flat ? it.key.slice(R2.prefix.length + R2.path.length) : it.key.split('/').pop();
     cell.append(thumb, tick, name);
     cell.onclick = () => { R2.selected.has(it.key) ? R2.selected.delete(it.key) : R2.selected.add(it.key); cell.classList.toggle('sel'); _r2UpdateCount(); };
     grid.appendChild(cell); R2.io.observe(cell);
@@ -11068,7 +11135,7 @@ function r2Render() {
 }
 function _r2UpdateCount(shown, nFolders) {
   const audio = R2.mode === 'audio';
-  const n = audio ? [...R2.selected].filter(k => R2.aitems.some(i => i.key === k)).length : R2.selected.size;   // selection survives moving between folders
+  const n = R2.selected.size;   // selection survives moving between folders
   document.getElementById('r2-count').textContent = (nFolders ? nFolders + (nFolders === 1 ? ' folder · ' : ' folders · ') : '') + (shown !== undefined ? shown + (audio ? ' files · ' : ' images · ') : '') + n + ' selected';
   document.getElementById('r2-import').disabled = n === 0;
   const canWrite = !!R2.wtoken;
@@ -11185,8 +11252,8 @@ function r2RenameAudio(it, nameEl) {
 }
 async function r2DeleteAudio(it) {
   if (!R2.wtoken) return;
-  const label = it.key.slice(R2.aprefix.length);
-  if (!(await uiConfirm({ title: 'Delete this narration from R2?', message: label, note: `It is moved to ${R2.aprefix}.trash/ in the bucket, so you can still recover it from the Cloudflare dashboard.`, confirmText: 'Delete narration', danger: true }))) return;
+  const label = _r2AName(it);
+  if (!(await uiConfirm({ title: 'Delete this narration from R2?', message: label, note: `It is moved to a .trash/ folder in the bucket, so you can still recover it from the Cloudflare dashboard.`, confirmText: 'Delete narration', danger: true }))) return;
   _r2Msg('Deleting…');
   try {
     const res = await _r2Fetch('/file?key=' + encodeURIComponent(it.key), { method: 'DELETE' }, true);
@@ -11198,7 +11265,7 @@ async function r2DeleteAudio(it) {
 }
 
 async function r2ImportAudio() {
-  const keys = [...R2.selected].filter(k => R2.aitems.some(i => i.key === k));
+  const keys = [...R2.selected];
   if (!keys.length) return;
   const btn = document.getElementById('r2-import'); btn.disabled = true;
   let done = 0, failed = 0;
@@ -11206,7 +11273,9 @@ async function r2ImportAudio() {
     _r2Msg(`Adding ${done + failed + 1} of ${keys.length}…`);
     try {
       const blob = await _r2Get('/file?key=' + encodeURIComponent(key), true);
-      await tlAddBlob(blob, key.split('/').pop().replace(/\.[^.]+$/, ''));
+      // folder + file ("abertura · 01"): inside project folders many files share the same name
+      const parts = key.split('/'), stem = parts.pop().replace(/\.[^.]+$/, ''), parent = parts.pop();
+      await tlAddBlob(blob, parent && parent !== 'narration' ? parent + ' · ' + stem : stem);
       done++;
     } catch (err) { failed++; }
   }
