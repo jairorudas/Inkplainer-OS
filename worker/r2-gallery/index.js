@@ -4,6 +4,8 @@
 //   GET    /list?prefix=&delimiter=/ -> same, but only the images directly inside `prefix`, plus `folders`:
 //                                    the sub-folder keys ("<PREFIX>Project A/"), so the app can browse project by project
 //   GET    /list?kind=audio       -> same, for the narration folder (AUDIO_PREFIX, audio files only)    (API_TOKEN)
+//   GET    /list?kind=audio&tree=1&prefix=&delimiter=/ -> audio files and sub-folders anywhere under PREFIX, so
+//                                    narrations that live inside project folders can be browsed; adds `tree: true`
 //   GET    /file?key=             -> the image (or narration audio) bytes                               (API_TOKEN)
 //   PUT    /file?key=[&overwrite=1] body = image                                                        (WRITE_TOKEN)
 //   DELETE /file?key=             -> moves the image or narration to .trash/<timestamp>/..., never erases (WRITE_TOKEN)
@@ -26,6 +28,8 @@ const KEY_CHARS = /^[\p{L}\p{N} ._\-/()+@,&']+$/u;
 const MAX_PAGE = 100;
 const MAX_UPLOAD = 20 * 1024 * 1024; // 20 MB
 const TRASH = '.trash/';
+// A key inside any .trash/ folder (the root one or one nested in a project / narration folder)
+const isTrash = k => k.startsWith(TRASH) || k.includes('/' + TRASH);
 
 export default {
   async fetch(request, env) {
@@ -48,6 +52,8 @@ export default {
 
     const prefix = env.PREFIX || '';
     const audioPrefix = env.AUDIO_PREFIX || '';
+    // Narrations are valid anywhere under PREFIX (project folders) or under the legacy AUDIO_PREFIX folder.
+    const isAudioKey = k => AUDIO_EXT.test(k) && !isTrash(k) && (safeKey(k, prefix) || (!!audioPrefix && safeKey(k, audioPrefix)));
     const url = new URL(request.url);
     const isWrite = request.method === 'PUT' || request.method === 'DELETE' || request.method === 'POST';
     if (!isWrite && request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
@@ -56,8 +62,10 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/list') {
       const audio = url.searchParams.get('kind') === 'audio';
-      if (audio && !audioPrefix) return json({ error: 'narration folder not configured' }, 404);
-      const base = audio ? audioPrefix : prefix, ext = audio ? AUDIO_EXT : IMAGE_EXT;
+      // tree=1: browse audio anywhere under PREFIX (narrations kept inside project folders); otherwise the fixed AUDIO_PREFIX folder
+      const tree = audio && url.searchParams.get('tree') === '1';
+      if (audio && !tree && !audioPrefix) return json({ error: 'narration folder not configured' }, 404);
+      const base = tree ? prefix : audio ? audioPrefix : prefix, ext = audio ? AUDIO_EXT : IMAGE_EXT;
       const sub = url.searchParams.get('prefix') || '';
       const listPrefix = base + sub;
       if (!safeKey(listPrefix, base)) return json({ error: 'bad prefix' }, 400);
@@ -70,10 +78,11 @@ export default {
       });
       return json({
         prefix: base,
+        ...(tree ? { tree: true } : {}),
         // only present when browsing by folder; its absence tells the app this Worker predates folder browsing
-        ...(delimiter ? { folders: (res.delimitedPrefixes || []).filter(f => !f.startsWith(base + TRASH) && !(!audio && audioPrefix && f === audioPrefix)) } : {}),
+        ...(delimiter ? { folders: (res.delimitedPrefixes || []).filter(f => !isTrash(f) && !(!audio && audioPrefix && f === audioPrefix)) } : {}),
         items: res.objects
-          .filter(o => ext.test(o.key) && !o.key.startsWith(base + TRASH))
+          .filter(o => ext.test(o.key) && !isTrash(o.key))
           .map(o => ({ key: o.key, size: o.size, uploaded: o.uploaded })),
         cursor: res.truncated ? res.cursor : null,
         truncated: res.truncated,
@@ -82,8 +91,7 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/rename') {
       const from = url.searchParams.get('from') || '', to = url.searchParams.get('to') || '';
-      const okAudio = k => !!audioPrefix && k.startsWith(audioPrefix) && safeKey(k, audioPrefix) && !k.startsWith(audioPrefix + TRASH) && AUDIO_EXT.test(k);
-      if (!okAudio(from) || !okAudio(to)) return json({ error: 'bad key' }, 400);
+      if (!isAudioKey(from) || !isAudioKey(to)) return json({ error: 'bad key' }, 400);
       if (!KEY_CHARS.test(to)) return json({ error: 'bad key characters' }, 400);
       if (to.endsWith('/') || to.split('/').pop().replace(AUDIO_EXT, '').trim() === '') return json({ error: 'bad key' }, 400);
       if (from.split('.').pop().toLowerCase() !== to.split('.').pop().toLowerCase()) return json({ error: 'extension must stay the same' }, 400);
@@ -99,8 +107,8 @@ export default {
     if (url.pathname === '/file') {
       const key = url.searchParams.get('key') || '';
       // Narration audio can be read and soft-deleted; uploads (PUT) are limited to the image prefix.
-      const isAudio = !!audioPrefix && key.startsWith(audioPrefix) && safeKey(key, audioPrefix) && !key.startsWith(audioPrefix + TRASH) && AUDIO_EXT.test(key);
-      const isImage = safeKey(key, prefix) && !key.startsWith(prefix + TRASH) && IMAGE_EXT.test(key);
+      const isAudio = isAudioKey(key);
+      const isImage = safeKey(key, prefix) && !isTrash(key) && IMAGE_EXT.test(key);
       if (request.method === 'GET' || request.method === 'DELETE' ? !(isImage || isAudio) : !isImage) return json({ error: 'bad key' }, 400);
 
       if (request.method === 'GET') {
@@ -135,7 +143,7 @@ export default {
         // Soft delete: copy under <PREFIX>.trash/<timestamp>/ then remove the original.
         const obj = await env.ASSETS.get(key);
         if (!obj) return json({ error: 'not found' }, 404);
-        const base = isAudio ? audioPrefix : prefix;
+        const base = isAudio && !key.startsWith(prefix) ? audioPrefix : prefix;   // a narration outside PREFIX is trashed next to AUDIO_PREFIX
         const trashKey = `${base}${TRASH}${Date.now()}/${key.slice(base.length)}`;
         await env.ASSETS.put(trashKey, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: { originalKey: key } });
         await env.ASSETS.delete(key);
