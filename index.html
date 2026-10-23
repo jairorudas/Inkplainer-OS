@@ -4831,8 +4831,13 @@ function initDB() {
 }
 
 // Save current state to project
+// True while loadProject is still decoding the saved layers: state.layers is incomplete then, and an autosave
+// in that window would overwrite the stored project with a partial copy. Failsafe: it clears itself after 20 s.
+let _projectLoading = false, _projectLoadingTimer = null;
+function _projectLoadStart() { _projectLoading = true; clearTimeout(_projectLoadingTimer); _projectLoadingTimer = setTimeout(() => { _projectLoading = false; }, 20000); }
+function _projectLoadDone() { _projectLoading = false; clearTimeout(_projectLoadingTimer); }
 function saveProject(projectId = currentProjectId) {
-  if (!db || !projectId) return;
+  if (!db || !projectId || _projectLoading) return;
   
   try {
   const transaction = db.transaction(['projects'], 'readwrite');
@@ -4961,6 +4966,8 @@ function loadProject(projectId) {
   request.onsuccess = () => {
     const project = request.result;
     if (project && project.state) {
+      _projectLoadStart();
+      try {
       currentProjectId = projectId;
       
       const savedState = project.state;
@@ -5091,6 +5098,7 @@ function loadProject(projectId) {
                 } else if (state.layers.length > 0) {
                   selectLayer(state.layers[0].id);
                 }
+                _projectLoadDone();
               }
             };
             img.onerror = () => {
@@ -5099,6 +5107,7 @@ function loadProject(projectId) {
               if (loadedCount === totalLayers) {
                 renderLayerList();
                 redrawLayersOnCanvas();
+                _projectLoadDone();
               }
             };
             img.src = layerData.imageDataURL;
@@ -5107,6 +5116,7 @@ function loadProject(projectId) {
             if (loadedCount === totalLayers) {
               renderLayerList();
               redrawLayersOnCanvas();
+              _projectLoadDone();
             }
           }
         });
@@ -5114,6 +5124,7 @@ function loadProject(projectId) {
         // No layers - clear layer list
         renderLayerList();
         redrawLayersOnCanvas();
+        _projectLoadDone();
       }
       
       // Update project name display
@@ -5196,6 +5207,11 @@ function loadProject(projectId) {
 
       // Clear undo/redo history — no cross-project history
       clearUndoHistory();
+      } catch (err) {
+        _projectLoadDone();
+        console.error('Project restore failed:', err);
+        showToast('⚠️ Could not open the project. Your saved work is untouched — reload the page and try again.', null, 8000);
+      }
     }
   };
   } catch (err) {
@@ -5886,8 +5902,11 @@ async function checkStorageUsage() {
   }
 }
 
-// Initialize on load
-setTimeout(() => {
+// Initialize on load.
+// This block sits in the FIRST <script>, but `state`, initCanvas, … are defined in a later one that comes after two
+// external files. A fixed 100 ms timer could fire before they were ready ("state is not defined"), so the project
+// was not opened. DOMContentLoaded fires only after every synchronous script has run.
+function _startApp() { setTimeout(() => {
   // Initialize canvas with default dimensions BEFORE loading project
   // This prevents the "zoomed in" bug when adding first image
   // Wait a bit for DOM to fully settle
@@ -5917,7 +5936,8 @@ setTimeout(() => {
       createNewProject();
     }
   });
-}, 100);
+}, 100); }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _startApp); else _startApp();
 
 // ─── UI HELPERS (new for v12) ───
 
