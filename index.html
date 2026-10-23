@@ -8309,6 +8309,11 @@ function _buildLayerItem(layer) {
       </div>
       <div style="font-size:9px;color:var(--muted);margin-bottom:4px;display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">Trim padding <input type="number" min="0" max="50" value="${_trimPad}" style="width:44px" onchange="_trimPad=Math.max(0,Math.min(50,+this.value||0))"> px</div>
       <div id="img-opt-status-${layer.id}" style="font-size:9px;color:var(--muted);line-height:1.4;margin-bottom:6px">${layer._optMsg || ''}</div>
+      ${_bgMatteOk(layer) ? `<div style="font-size:9px;color:var(--muted);margin:2px 0 3px;display:flex;justify-content:space-between"><span>← Keep more</span><span>Remove more →</span></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px" onclick="event.stopPropagation()">
+        <input type="range" min="0" max="100" value="${layer._bgSens ?? BG_DEFAULT_SENS}" data-slider-fill
+          oninput="updateRangeFill(this);setBgSensitivity(${layer.id},+this.value,false)" onchange="setBgSensitivity(${layer.id},+this.value,true)">
+      </div>` : ''}
       <div class="bg-rm-status" id="bg-rm-status-${layer.id}" style="font-size:9px;color:var(--muted);line-height:1.4;margin-bottom:10px;min-height:0">${_bgBusy && _bgBusy.id === layer.id ? _bgBusy.msg : ''}</div>
       ${state.groups.length > 0 ? `<div class="section-label" style="margin-top:2px">Group</div>
       <select style="width:100%;margin-bottom:10px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
@@ -12229,22 +12234,15 @@ function _bgLoadModel(onProgress) {
   return _bgModelPromise;
 }
 
-async function _bgRemove(img, onProgress) {
-  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+// Raw matte from the model: Float32 values 0..1 on a 1024x1024 grid (the whole image, stretched).
+async function _bgInfer(img, onProgress) {
   const { tf, model } = await _bgLoadModel(onProgress);
-  // Full-resolution source pixels
-  const src = document.createElement('canvas');
-  src.width = W; src.height = H;
-  const sctx = src.getContext('2d', { willReadFrequently: true });
-  sctx.drawImage(img, 0, 0);
-  const full = sctx.getImageData(0, 0, W, H);
-  // Model input: 1024x1024, (px/255 - mean) / 1 as in rembg's isnet-general-use
   const N = 1024, mean = [0.485, 0.456, 0.406];
   const small = document.createElement('canvas');
   small.width = small.height = N;
   const smctx = small.getContext('2d', { willReadFrequently: true });
   smctx.imageSmoothingQuality = 'high';
-  smctx.drawImage(src, 0, 0, N, N);
+  smctx.drawImage(img, 0, 0, N, N);
   const px = smctx.getImageData(0, 0, N, N).data;
   const input = new Float32Array(3 * N * N);
   for (let i = 0; i < N * N; i++) {
@@ -12252,35 +12250,122 @@ async function _bgRemove(img, onProgress) {
   }
   const out = await model({ input_image: new tf.Tensor('float32', input, [1, 3, N, N]) });
   const o = out.output_image || out[Object.keys(out)[0]];
-  const mh = o.dims[o.dims.length - 2], mw = o.dims[o.dims.length - 1];
-  const od = o.data;
+  const od = o.data, n = od.length;
   let lo = Infinity, hi = -Infinity;
-  for (let i = 0; i < od.length; i++) { if (od[i] < lo) lo = od[i]; if (od[i] > hi) hi = od[i]; }
-  const range = (hi - lo) || 1;
-  // Matte -> small canvas -> bilinear upscale to source size
-  const mc = document.createElement('canvas');
-  mc.width = mw; mc.height = mh;
-  const mctx = mc.getContext('2d');
-  const mimg = mctx.createImageData(mw, mh);
-  for (let i = 0; i < mw * mh; i++) {
-    const v = (od[i] - lo) / range * 255;
-    mimg.data[i * 4] = mimg.data[i * 4 + 1] = mimg.data[i * 4 + 2] = v;
-    mimg.data[i * 4 + 3] = 255;
+  for (let i = 0; i < n; i++) { if (od[i] < lo) lo = od[i]; if (od[i] > hi) hi = od[i]; }
+  const range = (hi - lo) || 1, data = new Float32Array(n);
+  for (let i = 0; i < n; i++) data[i] = (od[i] - lo) / range;
+  return { data, n: Math.round(Math.sqrt(n)) };
+}
+
+// Separable box filter (mean over a (2r+1)^2 window, edge-clamped) on a w*h Float32Array.
+function _boxFilter(src, w, h, r) {
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h), k = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++) {
+    const row = y * w; let acc = 0;
+    for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = acc * k;
+      acc += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+    }
   }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = acc * k;
+      acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+    }
+  }
+  return out;
+}
+
+// Guided filter (He et al.): snaps the soft matte p to the edges of the grey guide image I.
+function _guidedFilter(I, p, w, h, r, eps) {
+  const n = w * h, Ip = new Float32Array(n), II = new Float32Array(n);
+  for (let i = 0; i < n; i++) { Ip[i] = I[i] * p[i]; II[i] = I[i] * I[i]; }
+  const mI = _boxFilter(I, w, h, r), mp = _boxFilter(p, w, h, r), mIp = _boxFilter(Ip, w, h, r), mII = _boxFilter(II, w, h, r);
+  const a = new Float32Array(n), b = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const varI = mII[i] - mI[i] * mI[i], cov = mIp[i] - mI[i] * mp[i];
+    a[i] = cov / (varI + eps); b[i] = mp[i] - a[i] * mI[i];
+  }
+  const ma = _boxFilter(a, w, h, r), mb = _boxFilter(b, w, h, r), q = new Float32Array(n);
+  for (let i = 0; i < n; i++) q[i] = Math.min(1, Math.max(0, ma[i] * I[i] + mb[i]));
+  return q;
+}
+
+// "Keep more <-> Remove more" (0..100) -> soft alpha ramp. Never a hard cut: alpha stays continuous.
+function _bgCurve(sens) {
+  const t = 0.05 + 0.75 * sens / 100, lo = Math.max(0, t - 0.25), hi = Math.min(1, t + 0.25);
+  return v => { const x = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); return x * x * (3 - 2 * x); };
+}
+
+// Applies a stored matte to `img` at sensitivity `sens`. maxSide 0 = original resolution (colour pixels are
+// never resampled); otherwise a downscaled preview. The matte is refined at up to 2048px with a guided filter
+// driven by the real image so edges (hair, thin parts) follow the picture instead of the blurry 1024px matte.
+function _bgApplyMatte(img, matte, sens, maxSide) {
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+  const outScale = maxSide ? Math.min(1, maxSide / Math.max(W, H)) : 1;
+  const OW = Math.max(1, Math.round(W * outScale)), OH = Math.max(1, Math.round(H * outScale));
+  const ws = Math.min(1, 2048 / Math.max(OW, OH)), WW = Math.max(1, Math.round(OW * ws)), WH = Math.max(1, Math.round(OH * ws));
+  // matte -> work resolution
+  const mc = document.createElement('canvas'); mc.width = mc.height = matte.n;
+  const mctx = mc.getContext('2d'), mimg = mctx.createImageData(matte.n, matte.n);
+  for (let i = 0; i < matte.data.length; i++) { const v = Math.round(matte.data[i] * 255); mimg.data[i*4] = mimg.data[i*4+1] = mimg.data[i*4+2] = v; mimg.data[i*4+3] = 255; }
   mctx.putImageData(mimg, 0, 0);
-  const up = document.createElement('canvas');
-  up.width = W; up.height = H;
+  const wc = document.createElement('canvas'); wc.width = WW; wc.height = WH;
+  const wctx = wc.getContext('2d', { willReadFrequently: true });
+  wctx.imageSmoothingQuality = 'high';
+  wctx.drawImage(mc, 0, 0, WW, WH);
+  const md = wctx.getImageData(0, 0, WW, WH).data;
+  const p = new Float32Array(WW * WH); for (let i = 0; i < p.length; i++) p[i] = md[i * 4] / 255;
+  // guide = luminance of the real image at work resolution
+  wctx.clearRect(0, 0, WW, WH); wctx.drawImage(img, 0, 0, WW, WH);
+  const gd = wctx.getImageData(0, 0, WW, WH).data, I = new Float32Array(WW * WH);
+  for (let i = 0; i < I.length; i++) I[i] = (0.299 * gd[i*4] + 0.587 * gd[i*4+1] + 0.114 * gd[i*4+2]) / 255;
+  const q = _guidedFilter(I, p, WW, WH, Math.max(2, Math.round(WW / 250)), 2e-3);
+  const curve = _bgCurve(sens);
+  // alpha at work resolution -> output resolution
+  const ac = document.createElement('canvas'); ac.width = WW; ac.height = WH;
+  const actx = ac.getContext('2d'), aimg = actx.createImageData(WW, WH);
+  for (let i = 0; i < q.length; i++) { const v = Math.round(curve(q[i]) * 255); aimg.data[i*4] = aimg.data[i*4+1] = aimg.data[i*4+2] = v; aimg.data[i*4+3] = 255; }
+  actx.putImageData(aimg, 0, 0);
+  const out = document.createElement('canvas'); out.width = OW; out.height = OH;
+  const octx = out.getContext('2d', { willReadFrequently: true });
+  octx.drawImage(img, 0, 0, OW, OH);
+  const od = octx.getImageData(0, 0, OW, OH);
+  const up = document.createElement('canvas'); up.width = OW; up.height = OH;
   const uctx = up.getContext('2d', { willReadFrequently: true });
-  uctx.imageSmoothingEnabled = true; uctx.imageSmoothingQuality = 'high';
-  uctx.drawImage(mc, 0, 0, W, H);
-  const mask = uctx.getImageData(0, 0, W, H).data;
-  const d = full.data;
-  for (let i = 0; i < W * H; i++) {
-    const a = mask[i * 4];                                      // red channel = matte
-    d[i * 4 + 3] = Math.round(d[i * 4 + 3] * a / 255);          // keep any existing alpha
-  }
-  sctx.putImageData(full, 0, 0);
-  return src;
+  uctx.imageSmoothingQuality = 'high';
+  uctx.drawImage(ac, 0, 0, OW, OH);
+  const ud = uctx.getImageData(0, 0, OW, OH).data, d = od.data;
+  for (let i = 0; i < OW * OH; i++) d[i * 4 + 3] = Math.round(d[i * 4 + 3] * ud[i * 4] / 255);   // keep existing alpha
+  octx.putImageData(od, 0, 0);
+  return out;
+}
+
+const _canvasToImg = c => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = c.toDataURL('image/png'); });
+const BG_DEFAULT_SENS = 30;
+function _bgMatteOk(layer) {
+  const m = layer._bgMatte;
+  return !!(m && m.srcImg && m.srcImg.naturalWidth === layer.img.naturalWidth && m.srcImg.naturalHeight === layer.img.naturalHeight);
+}
+
+// Live slider: preview at <=1024px while dragging, full resolution on release. The model is not re-run.
+let _bgPrevToken = 0;
+async function setBgSensitivity(id, val, commit) {
+  const layer = state.layers.find(l => l.id === id);
+  if (!layer || !_bgMatteOk(layer) || _bgBusy) return;
+  layer._bgSens = val;
+  const token = ++_bgPrevToken;
+  if (!layer._bgPreviewBase) { pushUndoSnapshot(); layer._bgPreviewBase = layer.img; }
+  const m = layer._bgMatte;
+  const img = await _canvasToImg(_bgApplyMatte(m.srcImg, m, val, commit ? 0 : 1024));
+  if (token !== _bgPrevToken) return;                         // a newer slider position superseded this one
+  layer.img = img; layer.hasPngAlpha = true;
+  if (commit) { layer._bgPreviewBase = undefined; layer._r2Blob = undefined; renderLayerList(); scheduleAutoSave(); }
+  redrawLayersOnCanvas(); drawSelectionHandles();
 }
 
 async function removeLayerBackground(id) {
@@ -12305,9 +12390,11 @@ async function removeLayerBackground(id) {
     await _bgLoadModel(onProgress);
     _bgSetStatus(id, 'Removing background… (can take a while on large images)');
     await new Promise(r => setTimeout(r, 30));
-    const canvas = await _bgRemove(layer.img, onProgress);
-    const newImg = new Image();
-    await new Promise((res, rej) => { newImg.onload = res; newImg.onerror = rej; newImg.src = canvas.toDataURL('image/png'); });
+    const matte = await _bgInfer(layer.img, onProgress);
+    matte.srcImg = layer.img;
+    _bgSetStatus(id, 'Refining edges…');
+    await new Promise(r => setTimeout(r, 30));
+    const newImg = await _canvasToImg(_bgApplyMatte(layer.img, matte, BG_DEFAULT_SENS, 0));
     pushUndoSnapshot();
     if (!layer._bgPrev) {
       layer._bgPrev = { img: layer.img, origImg: layer._origImg,
@@ -12315,6 +12402,7 @@ async function removeLayerBackground(id) {
     }
     // The crop base would bring the background back on re-crop; it is stashed in _bgPrev.
     layer._origImg = layer._origX = layer._origY = layer._origW = layer._origH = undefined;
+    layer._bgMatte = matte; layer._bgSens = BG_DEFAULT_SENS; layer._bgPreviewBase = undefined; layer._r2Blob = undefined;
     layer.img = newImg;
     layer.hasPngAlpha = true;
     showToast('Background removed');
@@ -12338,7 +12426,7 @@ function restoreLayerBackground(id) {
   layer.img = p.img;
   layer._origImg = p.origImg;
   layer._origX = p.origX; layer._origY = p.origY; layer._origW = p.origW; layer._origH = p.origH;
-  layer._bgPrev = undefined;
+  layer._bgPrev = undefined; layer._bgMatte = undefined;
   // hasPngAlpha: recompute from the restored image
   const c = document.createElement('canvas');
   const sw = Math.min(p.img.naturalWidth, 400), sh = Math.min(p.img.naturalHeight, 400);
@@ -12443,6 +12531,7 @@ async function trimLayerImage(id) {
     layer.baseH = layer.baseH * r.h / H;
     layer.w = nw; layer.h = nh;
     layer.x = c.x - nw / 2; layer.y = c.y - nh / 2;
+    layer._bgMatte = undefined;
     layer.img = newImg;
     if (newBg) layer._bgPrev = { ...bp, img: newBg, origImg: undefined, origX: undefined, origY: undefined, origW: undefined, origH: undefined };
     // the crop base no longer matches the layer's geometry
