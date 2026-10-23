@@ -1346,10 +1346,23 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
   background: var(--panel); border: 1px solid var(--border-hi); border-radius: 8px;
 }
 .r2-import-btn:hover { background: #ececec; }
-#r2-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
-#r2-modal.open { display: flex; }
+#r2-modal, #ic-modal { position: fixed; inset: 0; z-index: 9000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); }
+#r2-modal.open, #ic-modal.open { display: flex; }
+.ic-colors { display: flex; gap: 6px; align-items: center; }
+.ic-sw { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border-hi); cursor: pointer; padding: 0; }
+.ic-sw.on { box-shadow: 0 0 0 2px #6c63ff; }
+.ic-colors input[type=color] { width: 26px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; }
+.ic-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ic-chip { padding: 3px 9px; font-size: 11px; border: 1px solid var(--border-hi); border-radius: 999px; background: var(--panel); cursor: pointer; color: var(--text); }
+.ic-chip:hover { background: #ececec; }
+.ic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+.ic-item { position: relative; aspect-ratio: 1; border: 2px solid transparent; border-radius: 9px; background: var(--panel); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 10px; }
+.ic-item:hover { background: #ececec; }
+.ic-item.sel { border-color: #6c63ff; }
+.ic-item img { width: 100%; height: 100%; object-fit: contain; }
 .r2-card { width: min(760px, 94vw); max-height: 88vh; display: flex; flex-direction: column; background: #fff; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.35); overflow: hidden; }
 .r2-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
+.r2-head, .r2-foot { flex-shrink: 0; }
 .r2-close { border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--muted-hi); }
 .r2-body { padding: 14px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .r2-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -4350,6 +4363,10 @@ input[type="number"]:focus { border-color: var(--accent); }
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
         Import from R2
       </button>
+      <button class="r2-import-btn" onclick="openIconsModal()" title="Search free icons and emojis (Fluent Emoji, MIT) and add them as images">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        Icons &amp; emojis
+      </button>
       </div>
 
       <!-- Background section -->
@@ -4676,6 +4693,26 @@ input[type="number"]:focus { border-color: var(--accent); }
     <div class="r2-foot">
       <span class="r2-msg" id="r2-count"></span>
       <button class="r2-btn primary" id="r2-import" onclick="r2ImportSelected()" disabled>Import selected</button>
+    </div>
+  </div>
+</div>
+
+<div id="ic-modal" onclick="if(event.target===this)closeIconsModal()">
+  <div class="r2-card" role="dialog" aria-label="Icons and emojis">
+    <div class="r2-head"><span>Icons &amp; emojis</span><button class="r2-close" onclick="closeIconsModal()" aria-label="Close">✕</button></div>
+    <div class="r2-body">
+      <div class="r2-row">
+        <input type="search" id="ic-q" placeholder="Search in English: arrow, star, light bulb, check…" autocomplete="off" oninput="icSearchSoon()">
+        <select id="ic-set" onchange="icSetChanged()" style="padding:7px 9px;font:inherit;font-size:12px;border:1px solid var(--border-hi);border-radius:7px;background:var(--panel);color:var(--text)"></select>
+      </div>
+      <div class="r2-row" id="ic-color-row"><span class="r2-hint" style="margin:0">Color</span><div class="ic-colors" id="ic-colors"></div></div>
+      <div class="ic-chips" id="ic-chips"></div>
+      <div class="r2-msg" id="ic-msg"></div>
+      <div class="ic-grid" id="ic-grid"></div>
+    </div>
+    <div class="r2-foot">
+      <span class="r2-hint" style="flex:1">Fluent Emoji © Microsoft Corporation, MIT licence · served by <a href="https://iconify.design" target="_blank" rel="noopener">Iconify</a></span>
+      <button class="r2-btn primary" id="ic-add" onclick="icAddSelected()" disabled>Add selected</button>
     </div>
   </div>
 </div>
@@ -10344,6 +10381,94 @@ function _r2Get(path, asBlob) {
     if (!res.ok) throw new Error(_r2Err(res.status));
     return asBlob ? res.blob() : res.json();
   });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ICONS & EMOJIS — Fluent Emoji (Microsoft, MIT) searched through the open Iconify API (no key)
+// ═══════════════════════════════════════════════════════════════════════════
+const IC = {
+  api: 'https://api.iconify.design',
+  sets: [
+    { prefix: 'fluent-emoji-high-contrast', label: 'High contrast (one color)', mono: true },
+    { prefix: 'fluent-emoji-flat',          label: 'Flat color',                mono: false },
+    { prefix: 'fluent-emoji',               label: 'Color (3D)',                mono: false },
+  ],
+  set: 0, color: '#111111', sel: new Set(), results: [], seq: 0, timer: null, ready: false,
+  chips: ['arrow', 'check mark', 'cross mark', 'star', 'heart', 'light bulb', 'warning', 'question mark', 'money', 'house', 'people', 'rocket'],
+  swatches: ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#2563eb', '#7c3aed', '#ffffff'],
+};
+function icUrl(name, size) {
+  const set = IC.sets[IC.set], q = [];
+  if (set.mono) q.push('color=' + encodeURIComponent(IC.color));
+  if (size) q.push('height=' + size);
+  return `${IC.api}/${set.prefix}/${name}.svg` + (q.length ? '?' + q.join('&') : '');
+}
+function icMsg(t, err) { const el = document.getElementById('ic-msg'); el.textContent = t || ''; el.classList.toggle('err', !!err); }
+function openIconsModal() {
+  if (!IC.ready) {
+    IC.ready = true;
+    document.getElementById('ic-set').innerHTML = IC.sets.map((s, i) => `<option value="${i}">${s.label}</option>`).join('');
+    document.getElementById('ic-chips').innerHTML = IC.chips.map(c => `<button class="ic-chip" onclick="icChip('${c}')">${c}</button>`).join('');
+    icRenderColors();
+  }
+  document.getElementById('ic-modal').classList.add('open');
+  icUpdateColorRow();
+  const q = document.getElementById('ic-q'); q.focus();
+  if (!q.value) icChip('arrow');
+}
+function closeIconsModal() { document.getElementById('ic-modal').classList.remove('open'); }
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('ic-modal').classList.contains('open')) closeIconsModal();
+});
+function icRenderColors() {
+  document.getElementById('ic-colors').innerHTML = IC.swatches.map(c => `<button class="ic-sw${c === IC.color ? ' on' : ''}" style="background:${c}" onclick="icSetColor('${c}')" aria-label="${c}"></button>`).join('')
+    + `<input type="color" value="${IC.color}" oninput="icSetColor(this.value)" aria-label="Custom color">`;
+}
+function icSetColor(c) { IC.color = c; icRenderColors(); icRender(); }
+function icUpdateColorRow() { document.getElementById('ic-color-row').style.display = IC.sets[IC.set].mono ? '' : 'none'; }
+function icSetChanged() { IC.set = +document.getElementById('ic-set').value; IC.sel.clear(); icUpdateColorRow(); icSearch(); }
+function icChip(c) { document.getElementById('ic-q').value = c; icSearch(); }
+function icSearchSoon() { clearTimeout(IC.timer); IC.timer = setTimeout(icSearch, 300); }
+async function icSearch() {
+  const q = document.getElementById('ic-q').value.trim(), id = ++IC.seq;
+  IC.results = []; IC.sel.clear(); icRender();
+  if (!q) { icMsg(''); return; }
+  icMsg('Searching…');
+  try {
+    const res = await fetch(`${IC.api}/search?query=${encodeURIComponent(q)}&prefixes=${IC.sets[IC.set].prefix}&limit=96`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    if (id !== IC.seq) return;
+    IC.results = (data.icons || []).map(n => n.split(':')[1]);
+    icMsg(IC.results.length ? '' : 'Nothing found. Try another word in English.');
+  } catch (e) { if (id === IC.seq) icMsg('Could not reach the icon service. Check your connection.', true); }
+  icRender();
+}
+function icRender() {
+  document.getElementById('ic-grid').innerHTML = IC.results.map(n =>
+    `<div class="ic-item${IC.sel.has(n) ? ' sel' : ''}" title="${n.replace(/-/g, ' ')}" onclick="icToggle('${n}')"><img loading="lazy" alt="${n}" src="${icUrl(n)}"></div>`).join('');
+  const b = document.getElementById('ic-add'); b.disabled = !IC.sel.size; b.textContent = IC.sel.size ? `Add selected (${IC.sel.size})` : 'Add selected';
+}
+function icToggle(n) { if (IC.sel.has(n)) IC.sel.delete(n); else IC.sel.add(n); icRender(); }
+// The SVG is drawn once into a large PNG so it behaves like any other image layer (effects, rotation, saving…).
+async function icAddSelected() {
+  const names = [...IC.sel]; if (!names.length) return;
+  const b = document.getElementById('ic-add'); b.disabled = true; icMsg('Adding…');
+  let n = 0;
+  for (const name of names) {
+    try {
+      const svg = await (await fetch(icUrl(name, 1024))).blob();
+      const url = URL.createObjectURL(svg), im = new Image();
+      await new Promise((ok, no) => { im.onload = ok; im.onerror = no; im.src = url; });
+      const c = document.createElement('canvas'); c.width = im.naturalWidth || 1024; c.height = im.naturalHeight || 1024;
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      const img = new Image(); await new Promise(ok => { img.onload = ok; img.src = c.toDataURL('image/png'); });
+      addLayer(img, name.replace(/-/g, ' ')); n++;
+    } catch (e) { icMsg('Could not add ' + name, true); }
+  }
+  IC.sel.clear(); icRender();
+  if (n) { icMsg(''); showToast(n === 1 ? 'Icon added' : n + ' icons added'); closeIconsModal(); }
 }
 
 function openR2Modal() {
