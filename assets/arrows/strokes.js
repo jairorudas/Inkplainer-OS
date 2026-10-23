@@ -193,11 +193,19 @@
     });
   }
 
+  const darken = hex => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.substr(i, 2), 16) * .55).toString(16).padStart(2, '0')).join('');
+  // sticker = the drawn strokes re-inked as fat shapes: shadow, white die-cut border, dark outline, color fill
+  function stickerize(body, color, border) {
+    const re = (col, add) => body.replace(/stroke="#[0-9a-fA-F]{3,6}"/g, `stroke="${col}"`).replace(/stroke-width="([\d.]+)"/g, (m, n) => `stroke-width="${f(+n + add)}"`).replace(/stroke-opacity="[\d.]+"/g, 'stroke-opacity="1"');
+    return `<g transform="translate(0 4)" opacity=".22">${re('#000', border + 4)}</g>${re('#fff', border + 4)}${re(darken(color), 6)}${re(color, 0)}`;
+  }
+
   function strokeSVG(kind, variant, o) {
     o = o || {};
     const color = o.color || '#111111', size = o.size || 400;
     const isH = kind === 'highlight', isRing = kind === 'circle', isGen = !!GEN[kind];
-    const penKey = o.pen || (isH ? 'chisel' : 'pen');
+    const sticker = !!o.sticker && !isH;
+    const penKey = sticker ? 'pen' : (o.pen || (isH ? 'chisel' : 'pen'));
     const pen = PENS[penKey] || PENS[isH ? 'chisel' : 'pen'];
     const w = o.width || (isH ? 34 : 7);
     const def = isGen ? (GEN[kind][variant] || Object.values(GEN[kind])[0]) : isRing ? (RINGS[variant] || RINGS.oval) : (isH ? HIGHLIGHT : UNDERLINE)[variant] || (isH ? HIGHLIGHT.swipe : UNDERLINE.solid);
@@ -205,12 +213,13 @@
     const id = 'sf' + (++uid), seed = variant.length * 17 + penKey.length * 5 + 3;
     const defs = pen.filter ? pen.filter(id) : '';
     const filt = pen.filter ? ` filter="url(#${id})"` : '';
-    const ww = w * pen.mul;
+    const ww = sticker ? w * 1.3 + 3 : w * pen.mul;
+    const lw = sticker ? ww + 16 : ww; // width the shapes lay themselves out for (leaves room for the sticker border)
     let body = '';
 
     if (isGen) {
       const r = rng(seed * 7 + 1);
-      def.paths(ww, r).forEach((it, k) => {
+      def.paths(lw, r).forEach((it, k) => {
         const o2 = it.pts ? it : { pts: it };
         for (let p = 0; p < (o2.dot ? 1 : pen.passes); p++) {
           let pts = o2.still ? o2.pts : wob(o2.pts, seed + k * 13 + p * 29, pen.wobble * .7);
@@ -220,7 +229,7 @@
       });
     } else if (isRing) {
       for (let p = 0; p < pen.passes; p++) {
-        const pts = wob(ringPts(def, ww, seed + p * 31), seed + p * 7, pen.wobble * .6).map(([x, y]) => [x, y + (p ? .8 : 0)]);
+        const pts = wob(ringPts(def, lw, seed + p * 31), seed + p * 7, pen.wobble * .6).map(([x, y]) => [x, y + (p ? .8 : 0)]);
         body += `<path d="${D(pts)}" fill="none" stroke="${color}" stroke-width="${f(p ? ww * .8 : ww)}" stroke-opacity="${p ? pen.op * .75 : pen.op}" stroke-linecap="round" stroke-linejoin="round"${filt}/>`;
       }
     } else if (isH) {
@@ -252,6 +261,7 @@
         }
       });
     }
+    if (sticker) body = stickerize(body, color, 16);
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${f(size * VH / VW)}" viewBox="0 0 ${VW} ${VH}">${defs ? '<defs>' + defs + '</defs>' : ''}${body}</svg>`;
   }
 

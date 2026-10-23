@@ -4711,6 +4711,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <div class="r2-row" id="ar-stroke-row" style="display:none">
         <span class="r2-hint" style="margin:0">Thickness</span><input type="range" id="ar-width" style="flex:1;min-width:120px;max-width:220px" oninput="arSetWidth(this.value)"><span class="r2-hint" id="ar-width-val" style="margin:0;width:24px"></span>
         <span class="r2-hint" style="margin:0 0 0 10px">Pen</span>
+        <label id="ar-sticker-lbl" style="width:auto;margin:0 0 0 10px;font-size:12px;color:var(--text);display:flex;gap:4px;align-items:center"><input type="checkbox" id="ar-sticker" onchange="arSetSticker(this.checked)"> Sticker</label>
         <select id="ar-pen" onchange="arSetPen(this.value)" style="padding:5px 8px;font:inherit;font-size:12px;border:1px solid var(--border-hi);border-radius:7px;background:var(--panel);color:var(--text)"></select>
       </div>
       <div class="ar-tabs" id="ar-tabs"></div>
@@ -10494,7 +10495,7 @@ function _r2Get(path, asBlob) {
 // ═══════════════════════════════════════════════════════════════════════════
 // ARROWS — SVG pack from assets/arrows (see tools/build-arrows.py); color / rotation are baked in before adding
 // ═══════════════════════════════════════════════════════════════════════════
-const AR = { style: null, color: '#111111', sel: new Map(), loaded: false, width: { highlight: 34, underline: 7, circle: 6 }, pen: { highlight: 'chisel', underline: 'pen', circle: 'pen' } };
+const AR = { sticker: {}, style: null, color: '#111111', sel: new Map(), loaded: false, width: { highlight: 34, underline: 7, circle: 6 }, pen: { highlight: 'chisel', underline: 'pen', circle: 'pen' } };
 const AR_STROKE_KINDS = ['highlight', 'underline', 'circle', 'box', 'brace', 'strike', 'mark', 'connector'];
 const arIsStroke = s => AR_STROKE_KINDS.includes(s);
 const AR_COLORS = ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#0ea5e9', '#2563eb', '#9333ea', '#ec4899'];
@@ -10502,7 +10503,7 @@ function arDarken(hex) { return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex
 function arOpts() { return { color: AR.color, rot: +document.getElementById('ar-rot').value, flip: document.getElementById('ar-flip').checked }; }
 function arSvg(style, name, size, o) {
   o = o || arOpts();
-  if (arIsStroke(style)) return window.STROKES.svg(style, name, { color: o.color, width: o.width || AR.width[style], pen: o.pen || AR.pen[style], size });
+  if (arIsStroke(style)) return window.STROKES.svg(style, name, { color: o.color, width: o.width || AR.width[style], pen: o.pen || AR.pen[style], sticker: o.sticker != null ? o.sticker : !!AR.sticker[style], size });
   const tpl = window.ARROW_PACK[style].items[name];
   let inner = tpl.replace(/%C%/g, o.color).replace(/%INK%/g, arDarken(o.color));
   if (o.rot || o.flip) inner = `<g transform="translate(100 100) rotate(${o.rot})${o.flip ? ' scale(1 -1)' : ''} translate(-100 -100)">${inner}</g>`;
@@ -10529,6 +10530,7 @@ function arStyles() { return [...Object.keys(window.ARROW_PACK), ...AR_STROKE_KI
 function arLabel(st) { return arIsStroke(st) ? window.STROKES.kinds[st].label : st; }
 function arItems(st) { return arIsStroke(st) ? window.STROKES.kinds[st].variants : Object.keys(window.ARROW_PACK[st].items); }
 function arSetWidth(v) { AR.width[AR.style] = +v; arRender(); }
+function arSetSticker(v) { AR.sticker[AR.style] = !!v; arRender(); }
 function arSetPen(v) { AR.pen[AR.style] = v; arRender(); }
 function arRender() {
   if (!AR.loaded) return;
@@ -10539,6 +10541,9 @@ function arRender() {
   if (stroke) {
     const k = window.STROKES.kinds[st], w = document.getElementById('ar-width');
     w.min = k.width[0]; w.max = k.width[1]; w.value = AR.width[st]; document.getElementById('ar-width-val').textContent = AR.width[st];
+    const on = !!AR.sticker[st] && st !== 'highlight';
+    document.getElementById('ar-sticker-lbl').style.display = st === 'highlight' ? 'none' : 'flex';
+    document.getElementById('ar-sticker').checked = on; document.getElementById('ar-pen').disabled = on;
     document.getElementById('ar-pen').innerHTML = k.pens.map(p => `<option value="${p}"${p === AR.pen[st] ? ' selected' : ''}>${window.STROKES.pens[p].label}</option>`).join('');
   }
   const grid = document.getElementById('ar-grid');
@@ -10555,7 +10560,7 @@ function arSelUi() {
 // each selected item keeps the color / thickness / pen / rotation it had when it was clicked
 function arToggle(k) {
   if (AR.sel.has(k)) AR.sel.delete(k);
-  else AR.sel.set(k, Object.assign(arOpts(), { width: AR.width[k.split('/')[0]], pen: AR.pen[k.split('/')[0]] }));
+  else AR.sel.set(k, Object.assign(arOpts(), { width: AR.width[k.split('/')[0]], pen: AR.pen[k.split('/')[0]], sticker: !!AR.sticker[k.split('/')[0]] }));
   arSelUi();
 }
 // Drawn once into a PNG so the arrow behaves like any other image layer (effects, rotation, saving…).
