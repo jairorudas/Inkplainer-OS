@@ -11002,6 +11002,51 @@ async function r2PlayToggle(it) {
     if (my === R2P.token) { r2PlayStop(); _r2Msg(err.name === 'NotAllowedError' ? 'The browser blocked playback. Click ▶ again.' : (err.message || 'Could not play.'), true); }
   }
 }
+// ── Delete a whole folder of narrations ──
+// R2 folders are only key prefixes, so "deleting a folder" means moving every narration below it to the trash,
+// all into the same .trash/<timestamp>/ folder. Other kinds of files in that folder are not touched.
+async function r2DeleteAudioFolder(path) {
+  if (!R2.wtoken) return;
+  const name = path.replace(/\/$/, '').split('/').pop();
+  r2PlayStop();
+  _r2Msg(`Counting the narrations in "${name}"…`);
+  const keys = [];
+  try {
+    let cursor = null;
+    do {
+      const page = await _r2Get('/list?kind=audio&tree=1&prefix=' + encodeURIComponent(path) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));   // no delimiter: everything below
+      keys.push(...page.items.map(i => i.key)); cursor = page.cursor;
+    } while (cursor && keys.length < 5000);
+    if (cursor) { _r2Msg(`"${name}" has more than 5000 narrations. Open its subfolders and delete them one by one.`, true); return; }
+  } catch (err) { _r2Msg(err.message, true); return; }
+  if (!keys.length) { _r2Msg(`"${name}" has no narrations to delete.`); return; }
+  const inner = new Set(keys.map(k => k.slice(R2.prefix.length + path.length).split('/').slice(0, -1).join('/')).filter(Boolean)).size;
+  const s = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  const ok = await uiConfirm({
+    title: `Delete the folder "${name}"?`,
+    message: `${s(keys.length, 'narration')} will be deleted` + (inner ? `, from this folder and ${s(inner, 'subfolder')}.` : '.'),
+    note: 'They are moved to a .trash/ folder in the bucket, so you can still recover them from the Cloudflare dashboard. Other kinds of files in this folder are not touched.',
+    confirmText: `Delete ${s(keys.length, 'narration')}`, danger: true,
+  });
+  if (!ok) { _r2Msg(''); return; }
+  const batch = String(Date.now());
+  let done = 0, failed = 0, lastErr = '', i = 0;
+  const worker = async () => {
+    while (i < keys.length) {
+      const key = keys[i++];
+      try {
+        const res = await _r2Fetch('/file?key=' + encodeURIComponent(key) + '&batch=' + batch, { method: 'DELETE' }, true);
+        if (!res.ok) throw new Error(await _r2Fail(res, true, 'deleting'));
+        done++; R2.selected.delete(key);
+      } catch (err) { failed++; lastErr = err.message; if (/write token/.test(err.message)) { i = keys.length; } }
+      _r2Msg(`Deleting… ${done + failed} of ${keys.length}`);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  R2.ameta.clear();
+  await r2LoadAudio();                                              // the folder disappears once nothing is left in it
+  _r2Msg(`"${name}": ${s(done, 'narration')} moved to the trash` + (failed ? `, ${failed} failed (${lastErr})` : '') + '.', failed > 0);
+}
 // Shown name of a narration: relative to the open folder (or to the narration/ folder with an older Worker)
 function _r2AName(it) { return it.key.slice(R2.alegacy ? R2.aprefix.length : R2.prefix.length + R2.apath.length); }
 const _R2_FOLDER_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" style="flex-shrink:0;color:#6c63ff"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
@@ -11040,7 +11085,10 @@ function r2RenderAudio() {
     row.insertAdjacentHTML('beforeend', _R2_FOLDER_ICON);
     const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = path.replace(/\/$/, '').split('/').pop();
     const sub = document.createElement('div'); sub.className = 'r2-meta'; sub.textContent = (R2.ameta.get(path) ? '' : '…');
-    row.append(name, sub); row.onclick = () => r2Go(path);
+    const del = document.createElement('button'); del.className = 'r2-act danger'; del.textContent = 'Delete'; del.disabled = !R2.wtoken;
+    del.title = R2.wtoken ? 'Move every narration in this folder (and its subfolders) to the trash' : 'No write token: open “Connection”, enter it and press Connect';
+    del.onclick = e => { e.stopPropagation(); r2DeleteAudioFolder(path); };
+    row.append(name, sub, del); row.onclick = () => r2Go(path);
     grid.appendChild(row); metaRows.push({ path, sub });
   });
   if (metaRows.length) _r2FillAudioFolderMeta(metaRows.slice(0, 60));

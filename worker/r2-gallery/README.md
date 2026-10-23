@@ -10,7 +10,7 @@ A small Cloudflare Worker that lets Inkplainer list, import, upload and delete i
 | `GET /list?kind=audio&tree=1&prefix=&delimiter=/` | `API_TOKEN` | Audio files and sub-folders anywhere under `PREFIX`, so narrations stored inside project folders (e.g. `<project>/assets/audios/pt-BR/<folder>/`) can be browsed. Omit `delimiter` to list everything below `prefix` |
 | `GET /file?key=` | `API_TOKEN` | Returns one image, or one narration file under `AUDIO_PREFIX` |
 | `PUT /file?key=` | `WRITE_TOKEN` | Uploads an image (max 20 MB, content is checked, no overwrite unless `&overwrite=1`) |
-| `DELETE /file?key=` | `WRITE_TOKEN` | Moves the image to `<PREFIX>.trash/<timestamp>/…`, or a narration to `<AUDIO_PREFIX>.trash/<timestamp>/…`; nothing is erased |
+| `DELETE /file?key=[&batch=<ms timestamp>]` | `WRITE_TOKEN` | Moves the image to `<PREFIX>.trash/<timestamp>/…`, or a narration to `<AUDIO_PREFIX>.trash/<timestamp>/…`; nothing is erased. `batch` lets files deleted together (a whole narration folder) share one `.trash/<timestamp>/` folder |
 | `POST /rename?from=&to=` | `WRITE_TOKEN` | Renames a narration inside `AUDIO_PREFIX` (same extension, never overwrites an existing file, `409` if the new name is taken) |
 
 Safety notes

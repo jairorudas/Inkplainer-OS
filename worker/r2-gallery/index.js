@@ -8,7 +8,8 @@
 //                                    narrations that live inside project folders can be browsed; adds `tree: true`
 //   GET    /file?key=             -> the image (or narration audio) bytes                               (API_TOKEN)
 //   PUT    /file?key=[&overwrite=1] body = image                                                        (WRITE_TOKEN)
-//   DELETE /file?key=             -> moves the image or narration to .trash/<timestamp>/..., never erases (WRITE_TOKEN)
+//   DELETE /file?key=[&batch=ts]  -> moves the image or narration to .trash/<timestamp>/..., never erases (WRITE_TOKEN);
+//                                    `batch` keeps files deleted together (a folder) in the same trash folder
 //   POST   /rename?from=&to=      -> renames a narration audio file inside AUDIO_PREFIX (keeps the extension,
 //                                    refuses to overwrite)                                                 (WRITE_TOKEN)
 //
@@ -144,7 +145,9 @@ export default {
         const obj = await env.ASSETS.get(key);
         if (!obj) return json({ error: 'not found' }, 404);
         const base = isAudio && !key.startsWith(prefix) ? audioPrefix : prefix;   // a narration outside PREFIX is trashed next to AUDIO_PREFIX
-        const trashKey = `${base}${TRASH}${Date.now()}/${key.slice(base.length)}`;
+        // &batch=<timestamp>: files deleted together (a whole folder) land in the same .trash/<timestamp>/ folder
+        const batch = url.searchParams.get('batch') || '';
+        const trashKey = `${base}${TRASH}${/^\d{10,16}$/.test(batch) ? batch : Date.now()}/${key.slice(base.length)}`;
         await env.ASSETS.put(trashKey, obj.body, { httpMetadata: obj.httpMetadata, customMetadata: { originalKey: key } });
         await env.ASSETS.delete(key);
         return json({ trashed: trashKey });
