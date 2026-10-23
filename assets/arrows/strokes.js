@@ -152,29 +152,6 @@
       arc(x0 + c, y1 - c, c, c, 90, 180), lin([x0, y1 - c], [x0, y0 + c]), arc(x0 + c, y0 + c, c, c, 180, 270), lin([x0 + c, y0 - 1], [x0 + c + 24, y0 - 2.5], 6));
     return [mir ? mirrorX(path) : path];
   }
-  function bubShout(ww, r) {
-    const m = ww / 2 + 8, cx = BW / 2, cy = 90, n = 16;
-    return [Array.from({ length: n * 2 + 2 }, (_, i) => {
-      const a = (i / (n * 2)) * Math.PI * 2 - Math.PI / 2, k = i % 2 ? .66 : 1;
-      return [cx + (BW / 2 - m) * k * Math.cos(a) * (1 + jit(r, .05)), cy + (84 - m) * k * Math.sin(a) * (1 + jit(r, .05))];
-    })];
-  }
-  // scalloped cloud + trailing bubbles
-  function bubCloud(ww, r) {
-    const m = ww / 2 + 7, cx = BW / 2, cy = 76, rx = BW / 2 - m - 8, ry = 62 - m + 6, n = 11, out = [];
-    const P = i => { const a = (i / n) * Math.PI * 2 - Math.PI / 2; return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)]; };
-    let path = [];
-    for (let i = 0; i < n; i++) {
-      const a = P(i), b = P(i + 1), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], ang = Math.atan2(mid[1] - cy, mid[0] - cx);
-      const ctl = [mid[0] + 17 * Math.cos(ang) * 1.5, mid[1] + 17 * Math.sin(ang) * 1.3];
-      path = cat(path, bez(a, [a[0] + (ctl[0] - a[0]) * .9, a[1] + (ctl[1] - a[1]) * .9], [b[0] + (ctl[0] - b[0]) * .9, b[1] + (ctl[1] - b[1]) * .9], b, 10));
-    }
-    return [path, arc(86, 160, 11, 11, 0, 370, 24), arc(60, 178, 8, 8, 0, 370, 20), arc(42, 191, 5.5, 5.5, 0, 370, 16)];
-  }
-  function bubThoughtOval(ww, r) {
-    const m = ww / 2 + 7, cx = BW / 2, cy = 76, rx = BW / 2 - m, ry = 66 - m + 6;
-    return [arc(cx, cy, rx, ry, -100, 270, 90), arc(92, 160, 11, 11, 0, 370, 24), arc(64, 178, 8, 8, 0, 370, 20), arc(44, 191, 5.5, 5.5, 0, 370, 16)];
-  }
   const dashW = ww => `${f(ww * 3 + 6)} ${f(ww * 2 + 6)}`;
 
   const GEN = {
@@ -217,9 +194,6 @@
       'speech-box':    { dims: [BW, BH], paths: (ww, r) => bubRect(ww, r, false) },
       'speech-box-right': { dims: [BW, BH], paths: (ww, r) => bubRect(ww, r, true) },
       'whisper':       { dims: [BW, BH], paths: (ww, r) => bubOval(ww, r, false).map(pts => ({ pts, dash: dashW })) },
-      'shout':         { dims: [BW, BH], paths: (ww, r) => bubShout(ww, r) },
-      'thought':       { dims: [BW, BH], paths: (ww, r) => bubCloud(ww, r) },
-      'thought-oval':  { dims: [BW, BH], paths: (ww, r) => bubThoughtOval(ww, r) },
     },
     connector: {
       dots:         { dims: [400, 100], paths: () => [lin([40, 50], [360, 50], 40), dot(40, 50), dot(360, 50)] },
