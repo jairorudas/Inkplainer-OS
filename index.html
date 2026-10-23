@@ -1408,6 +1408,10 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-item.audio .r2-name { padding: 0; flex: 1; font-size: 12px; }
 .r2-item.audio .r2-meta { font-size: 10px; color: var(--muted); }
 .r2-item.audio.folder { padding-left: 12px; gap: 8px; background: #f4f1ff; }
+.r2-item.audio .r2-play { width: 30px; flex-shrink: 0; padding: 2px 0; text-align: center; }
+.r2-item.audio .r2-play.on { background: #6c63ff; border-color: #6c63ff; color: #fff; }
+.r2-item.audio.playing { background: #f4f1ff; }
+.r2-item.audio .r2-meta { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 .r2-item.audio.folder .r2-name { font-weight: 600; }
 .r2-item.audio .r2-act { border: 1px solid var(--border-hi); background: var(--panel); color: var(--text); border-radius: 5px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer; }
 .r2-item.audio .r2-act.danger { color: #dc2626; border-color: #f3b4b4; }
@@ -10780,6 +10784,7 @@ function openR2Modal() {
   if (R2.connected) { document.getElementById('r2-browser').style.display = ''; r2Render(); }
 }
 function closeR2Modal() {
+  r2PlayStop();
   document.getElementById('r2-modal').classList.remove('open');
   if (R2.io) { R2.io.disconnect(); R2.io = null; }
   R2.queue = [];
@@ -10853,6 +10858,7 @@ function _r2Pump() {
 }
 
 function r2SetMode(mode) {
+  r2PlayStop();
   R2.mode = mode; R2.selected.clear();
   const audio = mode === 'audio';
   document.getElementById('r2-mode-images').classList.toggle('primary', !audio);
@@ -10867,6 +10873,7 @@ function r2SetMode(mode) {
   if (audio && !R2.aloaded) r2LoadAudio(); else r2Render();
 }
 async function r2LoadAudio() {
+  r2PlayStop();
   _r2Msg('Loading narrations…');
   try {
     const page = await _r2Level(R2.apath, null, 'audio');
@@ -10874,6 +10881,45 @@ async function r2LoadAudio() {
     _r2Msg(page.items.length || R2.afolders.length ? '' : R2.alegacy ? 'No audio files found in the narration folder.' : 'No audio files in this folder.');
     r2Render();
   } catch (err) { _r2Msg(err.message, true); }
+}
+// ── Listen to a narration before adding it (▶ in each row) ──
+const R2P = { key: null, audio: null, loading: false, token: 0, cache: new Map() };
+const _r2Mmss = s => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+function _r2PlayUi() {                                   // keep the visible rows in step with what is playing
+  document.querySelectorAll('.r2-item.audio:not(.folder)').forEach(row => {
+    const on = row.dataset.key === R2P.key, b = row.querySelector('.r2-play'), m = row.querySelector('.r2-meta');
+    row.classList.toggle('playing', on);
+    if (b) { b.textContent = on ? (R2P.loading ? '…' : '■') : '▶'; b.classList.toggle('on', on); b.title = on ? 'Stop' : 'Listen'; }
+    if (!on && m && m.dataset.size) m.textContent = m.dataset.size;
+  });
+}
+function r2PlayStop() {
+  R2P.token++;                                           // a download still in flight must not start playing
+  const a = R2P.audio;
+  if (a) { a.onended = a.ontimeupdate = a.onerror = null; try { a.pause(); } catch (e) {} }
+  R2P.audio = null; R2P.key = null; R2P.loading = false; _r2PlayUi();
+}
+async function r2PlayToggle(it) {
+  if (R2P.key === it.key) { r2PlayStop(); return; }
+  r2PlayStop();
+  const my = ++R2P.token; R2P.key = it.key; R2P.loading = true; _r2PlayUi();
+  try {
+    let url = R2P.cache.get(it.key);
+    if (!url) {
+      url = URL.createObjectURL(await _r2Get('/file?key=' + encodeURIComponent(it.key), true));
+      R2P.cache.set(it.key, url);
+      if (R2P.cache.size > 8) { const old = R2P.cache.keys().next().value; URL.revokeObjectURL(R2P.cache.get(old)); R2P.cache.delete(old); }   // keep the last few
+    }
+    if (my !== R2P.token) return;                        // stopped (or another one chosen) while downloading
+    const a = new Audio(url); R2P.audio = a; R2P.loading = false;
+    a.onended = () => { if (R2P.audio === a) r2PlayStop(); };
+    a.ontimeupdate = () => { const m = document.querySelector(`.r2-item.audio[data-key="${CSS.escape(it.key)}"] .r2-meta`); if (m) m.textContent = _r2Mmss(a.currentTime) + ' / ' + _r2Mmss(a.duration); };
+    a.onerror = () => { if (R2P.audio === a) { r2PlayStop(); _r2Msg('Could not play ' + _r2AName(it) + ' (format not supported by this browser?).', true); } };
+    _r2PlayUi();
+    await a.play();
+  } catch (err) {
+    if (my === R2P.token) { r2PlayStop(); _r2Msg(err.name === 'NotAllowedError' ? 'The browser blocked playback. Click ▶ again.' : (err.message || 'Could not play.'), true); }
+  }
 }
 // Shown name of a narration: relative to the open folder (or to the narration/ folder with an older Worker)
 function _r2AName(it) { return it.key.slice(R2.alegacy ? R2.aprefix.length : R2.prefix.length + R2.apath.length); }
@@ -10924,12 +10970,15 @@ function r2RenderAudio() {
     const tick = document.createElement('div'); tick.className = 'r2-tick'; tick.textContent = '✓';
     const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = '♪  ' + _r2AName(it);
     const meta = document.createElement('div'); meta.className = 'r2-meta'; meta.textContent = (it.size / 1048576).toFixed(1) + ' MB';
+    meta.dataset.size = meta.textContent;
+    const play = document.createElement('button'); play.className = 'r2-act r2-play'; play.textContent = '▶'; play.title = 'Listen';
+    play.onclick = e => { e.stopPropagation(); r2PlayToggle(it); };
     const ren = document.createElement('button'); ren.className = 'r2-act'; ren.textContent = 'Rename'; ren.disabled = !R2.wtoken;
     const del = document.createElement('button'); del.className = 'r2-act danger'; del.textContent = 'Delete'; del.disabled = !R2.wtoken;
     ren.title = del.title = R2.wtoken ? '' : 'No write token: open “Connection”, enter it and press Connect';
     ren.onclick = e => { e.stopPropagation(); r2RenameAudio(it, name); };
     del.onclick = e => { e.stopPropagation(); r2DeleteAudio(it); };
-    row.append(tick, name, meta, ren, del);
+    row.append(tick, play, name, meta, ren, del);
     row.onclick = () => { R2.selected.has(it.key) ? R2.selected.delete(it.key) : R2.selected.add(it.key); row.classList.toggle('sel'); _r2UpdateCount(); };
     grid.appendChild(row);
   });
@@ -10940,6 +10989,7 @@ function r2RenderAudio() {
   }
   document.getElementById('r2-more').style.display = R2.acursor ? '' : 'none';
   _r2UpdateCount(items.length, folders.length);
+  _r2PlayUi();
 }
 // ── Folder browsing: the bucket is organised as one folder per project ──
 // Paths are relative to the Worker's prefix and end with "/" ('' = the root, i.e. all projects).
@@ -11226,6 +11276,7 @@ function _r2AudioErr(status, what) {
 }
 function r2RenameAudio(it, nameEl) {
   if (!R2.wtoken) return;
+  if (R2P.key === it.key) r2PlayStop();
   const dir = it.key.slice(0, it.key.lastIndexOf('/') + 1), file = it.key.slice(dir.length);
   const dot = file.lastIndexOf('.'), ext = dot > 0 ? file.slice(dot) : '', stem = dot > 0 ? file.slice(0, dot) : file;
   const input = document.createElement('input'); input.className = 'r2-rename'; input.value = stem; input.maxLength = 80;
@@ -11252,6 +11303,7 @@ function r2RenameAudio(it, nameEl) {
 }
 async function r2DeleteAudio(it) {
   if (!R2.wtoken) return;
+  if (R2P.key === it.key) r2PlayStop();
   const label = _r2AName(it);
   if (!(await uiConfirm({ title: 'Delete this narration from R2?', message: label, note: `It is moved to a .trash/ folder in the bucket, so you can still recover it from the Cloudflare dashboard.`, confirmText: 'Delete narration', danger: true }))) return;
   _r2Msg('Deleting…');
