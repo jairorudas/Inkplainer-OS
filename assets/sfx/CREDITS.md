@@ -1,7 +1,7 @@
 # Sound effects credits
 
 All recorded sounds are **CC0 (public domain)**: credit is not required, it is given here as a courtesy.
-They were trimmed, faded and loudness-normalised, and re-encoded to mono MP3.
+They were trimmed, noise-reduced (spectral denoise + gate on the writing sounds), faded and loudness-normalised, and re-encoded to mono MP3.
 
 | Files in `audio/` | Source | Author | Licence |
 |---|---|---|---|
