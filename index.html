@@ -4275,7 +4275,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       <button class="tl-btn" onclick="tlOpenR2()" title="Pick narration from the narration/ folder of your R2 bucket">R2 narration</button>
       <button class="tl-btn" onclick="openSfxModal()" title="Writing, whoosh, pop, chime… sound effects for the timeline">Sound effects</button>
       <button class="tl-btn tl-icon-btn" id="tl-mute" onclick="tlToggleMute()" title="Mute the preview (exports always include the audio)" aria-label="Mute preview"></button>
-      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="15" max="240" value="60" oninput="updateRangeFill(this);tlSetZoom(+this.value)"></div>
+      <div class="tl-zoom"><span>Zoom</span><input type="range" id="tl-zoom" min="2" max="240" value="60" oninput="updateRangeFill(this);tlSetZoom(+this.value)"><button class="tl-btn" onclick="tlFit()" title="Zoom out so the whole timeline (groups and audio) fits the width">Fit</button></div>
     </div>
     <div class="tl-body">
       <div class="tl-labels" id="tl-labels"></div>
@@ -7957,7 +7957,7 @@ function tlRender() {
   const frag = document.createDocumentFragment();
   // ruler
   const ruler = document.createElement('div'); ruler.className = 'tl-ruler'; ruler.id = 'tl-ruler';
-  const step = TL.pps >= 100 ? 1 : TL.pps >= 40 ? 2 : TL.pps >= 22 ? 5 : 10;
+  const step = TL.pps >= 100 ? 1 : TL.pps >= 40 ? 2 : TL.pps >= 22 ? 5 : TL.pps >= 10 ? 10 : TL.pps >= 5 ? 30 : TL.pps >= 2.5 ? 60 : 120;
   for (let t = 0; t <= total + 3; t += step) {
     const tick = document.createElement('div'); tick.className = 'tl-tick'; tick.style.left = t * TL.pps + 'px'; tick.textContent = tlFmt(t).replace(/\.0$/, '');
     ruler.appendChild(tick);
@@ -8118,6 +8118,24 @@ function tlScrub(e) {
   document.addEventListener('mousemove', set); document.addEventListener('mouseup', up);
 }
 function tlSetZoom(v) { TL.pps = v; tlRender(); }
+// Zoom so everything (animation groups AND audio) fits the visible width, and show it from the start.
+function tlFit() {
+  const sc = document.getElementById('tl-scroll'); if (!sc || !sc.clientWidth) return;
+  const z = document.getElementById('tl-zoom');
+  TL.pps = Math.max(+z.min, Math.min(+z.max, (sc.clientWidth - 8) / (tlTotal() + 3)));   // tlRender leaves (total + 3) s of width
+  z.value = TL.pps; updateRangeFill(z);
+  tlRender(); sc.scrollLeft = 0;
+}
+// A new clip goes after the last one of its track, which can be far off-screen. Rolling the timeline there would
+// hide the groups (they sit at the start), so the zoom is reduced until both are visible.
+function tlRevealNewClip(id) {
+  setTimeout(() => {
+    const sc = document.getElementById('tl-scroll'), el = sc && sc.querySelector(`.tl-clip[data-clip="${id}"]`);
+    if (!el || !sc.clientWidth) return;
+    const r = el.getBoundingClientRect(), v = sc.getBoundingClientRect();
+    if (r.right > v.right + 1 || r.left < v.left - 1) tlFit();
+  }, 120);
+}
 function tlToggle(force) {
   const p = document.getElementById('timeline-panel');
   const collapsed = force !== undefined ? !force : !p.classList.contains('collapsed');
@@ -8236,7 +8254,7 @@ function tlAddClip(buf, name, trackId, blob) {
   TL.buffers.set(clip.id, buf); TL.peaks.set(clip.id, tlPeaks(buf));
   if (blob) { TL.blobs.set(clip.id, blob); tlStoreBlob(clip.id, blob); }
   track.clips.push(clip); TL.sel = clip.id;
-  tlToggle(true); tlRender(); tlChanged();
+  tlToggle(true); tlRender(); tlChanged(); tlRevealNewClip(clip.id);
 }
 // Used by the R2 narration picker: a downloaded Blob becomes a clip.
 async function tlAddBlob(blob, name, trackId) {
@@ -11474,8 +11492,6 @@ async function r2ImportAudio() {
   closeR2Modal();
   const track = tlActive().name;
   showToast(failed ? `Added ${done} to “${track}”; ${failed} failed. ${reasons[0]}` : `Added ${done} narration${done !== 1 ? 's' : ''} to the track “${track}”`, null, failed ? 7000 : 3500);
-  // new clips go after the last one of the active track, which can be far off-screen: bring the newest into view
-  setTimeout(() => { const el = document.querySelector('#tl-inner .tl-clip.sel'); if (el) el.scrollIntoView({ inline: 'center', block: 'nearest' }); }, 150);
 }
 
 async function r2ImportSelected() {
