@@ -4698,7 +4698,7 @@ input[type="number"]:focus { border-color: var(--accent); }
       </div>
       <div class="r2-msg" id="r2-msg"></div>
       <div id="r2-browser" style="display:none">
-        <div class="r2-row" style="margin-bottom:8px"><button class="r2-btn primary" id="r2-mode-images" onclick="r2SetMode('images')">Images</button><button class="r2-btn" id="r2-mode-audio" onclick="r2SetMode('audio')">Narration</button><span style="flex:1"></span><button class="r2-btn" id="r2-conn-btn" onclick="r2ToggleConnect()" title="Change the Worker URL or the tokens">Connection</button></div>
+        <div class="r2-row" style="margin-bottom:8px"><button class="r2-btn primary" id="r2-mode-images" onclick="r2SetMode('images')">Images</button><button class="r2-btn" id="r2-mode-audio" onclick="r2SetMode('audio')">Narration</button><span style="flex:1"></span><button class="r2-btn" id="r2-sync" onclick="r2Sync()" title="Fetch what changed in the bucket: new images, new project folders, new narrations">⟳ Sync</button><button class="r2-btn" id="r2-conn-btn" onclick="r2ToggleConnect()" title="Change the Worker URL or the tokens">Connection</button></div>
         <div class="r2-crumbs" id="r2-crumbs"></div>
         <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter this folder…" oninput="r2Render()"></div>
         <div class="r2-row" id="r2-tools" style="margin-top:8px">
@@ -10856,9 +10856,44 @@ async function r2Open(path, opts = {}) {
     const more = await _r2Level(path, R2.cursor);
     R2.items.push(...more.items); R2.folders = _r2MergeFolders(R2.folders, more.folders); R2.cursor = more.cursor;
   }
+  _r2DropStaleThumbs(R2.items);
   const f = document.getElementById('r2-folder'); if (f && path) f.value = path.replace(/\/$/, '');   // uploads follow the open project
   if (R2.connected || opts.fresh) { document.getElementById('r2-browser').style.display = ''; }
   r2Render();
+}
+// A file overwritten in the bucket keeps its key, so its cached thumbnail must go when size or date changed.
+const _r2Sigs = new Map();
+function _r2DropStaleThumbs(items) {
+  for (const it of items) {
+    const sig = it.size + '|' + it.uploaded, old = _r2Sigs.get(it.key);
+    if (old && old !== sig) { const u = R2.thumbs.get(it.key); if (u) { URL.revokeObjectURL(u); R2.thumbs.delete(it.key); } }
+    _r2Sigs.set(it.key, sig);
+  }
+}
+// Re-reads the open folder (or the narration list) from the bucket and says what is new.
+async function r2Sync() {
+  if (!R2.connected) return;
+  const btn = document.getElementById('r2-sync'); btn.disabled = true; btn.textContent = '⟳ Syncing…';
+  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  try {
+    let found = [];
+    if (R2.mode === 'audio') {
+      const before = new Set(R2.aitems.map(i => i.key));
+      const page = await _r2Get('/list?kind=audio');
+      R2.aitems = page.items; R2.acursor = page.cursor; R2.aprefix = page.prefix || ''; R2.aloaded = true;
+      const n = page.items.filter(i => !before.has(i.key)).length, gone = [...before].filter(k => !page.items.some(i => i.key === k)).length;
+      if (n) found.push(plural(n, 'new narration')); if (gone) found.push(plural(gone, 'narration') + ' removed');
+      r2Render();
+    } else {
+      const beforeKeys = new Set(R2.items.map(i => i.key)), beforeFolders = new Set(R2.folders);
+      await r2Reload();
+      const nImg = R2.items.filter(i => !beforeKeys.has(i.key)).length, nFol = R2.folders.filter(f => !beforeFolders.has(f)).length;
+      const gone = [...beforeKeys].filter(k => !R2.items.some(i => i.key === k)).length + [...beforeFolders].filter(f => !R2.folders.includes(f)).length;
+      if (nFol) found.push(plural(nFol, 'new folder')); if (nImg) found.push(plural(nImg, 'new image')); if (gone) found.push(plural(gone, 'item') + ' removed');
+    }
+    _r2Msg(found.length ? 'Synced: ' + found.join(', ') + '.' : 'Synced: already up to date.');
+  } catch (err) { _r2Msg(err.message, true); }
+  finally { btn.disabled = false; btn.textContent = '⟳ Sync'; }
 }
 function r2Go(path) {
   _r2Msg('Loading…');
