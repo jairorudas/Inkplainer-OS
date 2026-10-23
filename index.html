@@ -1371,6 +1371,20 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .ar-item.sel { border-color: #6c63ff; }
 .ar-item svg { width: 100%; height: 100%; display: block; }
 .ar-item.wide { grid-column: span 3; padding: 2px 8px; }
+.ui-dialog-back { position: fixed; inset: 0; z-index: 10000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); animation: uiDlgFade .12s ease-out; }
+.ui-dialog-back.open { display: flex; }
+.ui-dialog { width: min(420px, 92vw); background: #fff; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.35); padding: 22px 22px 18px; animation: uiDlgPop .16s cubic-bezier(.2,.9,.3,1.2); }
+.ui-dialog-icon { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #f1f0fe; color: #6c63ff; margin-bottom: 12px; }
+.ui-dialog.danger .ui-dialog-icon { background: #fdecec; color: #e03131; }
+.ui-dialog-title { font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 6px; }
+.ui-dialog-msg { font-size: 13px; line-height: 1.45; color: var(--text); margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.ui-dialog-note { font-size: 11.5px; line-height: 1.45; color: var(--muted-hi); margin: 10px 0 0; padding: 8px 10px; background: var(--panel); border-radius: 8px; overflow-wrap: anywhere; }
+.ui-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.r2-btn.danger-solid { background: #e03131; border-color: #e03131; color: #fff; }
+.r2-btn.danger-solid:hover { background: #c92a2a; }
+.ui-dialog-actions .r2-btn:focus-visible { outline: 2px solid #6c63ff; outline-offset: 2px; }
+@keyframes uiDlgFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes uiDlgPop { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
 .r2-card { width: min(760px, 94vw); max-height: 88vh; display: flex; flex-direction: column; background: #fff; border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,0.35); overflow: hidden; }
 .r2-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
 .r2-head, .r2-foot { flex-shrink: 0; }
@@ -4721,6 +4735,19 @@ input[type="number"]:focus { border-color: var(--accent); }
 </div>
 
 
+<div id="ui-dialog" class="ui-dialog-back" onclick="if(event.target===this)uiDialogClose(false)">
+  <div class="ui-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ui-dialog-title" aria-describedby="ui-dialog-msg">
+    <div class="ui-dialog-icon" id="ui-dialog-icon"></div>
+    <h3 class="ui-dialog-title" id="ui-dialog-title"></h3>
+    <p class="ui-dialog-msg" id="ui-dialog-msg"></p>
+    <p class="ui-dialog-note" id="ui-dialog-note" style="display:none"></p>
+    <div class="ui-dialog-actions">
+      <button class="r2-btn" id="ui-dialog-cancel" onclick="uiDialogClose(false)">Cancel</button>
+      <button class="r2-btn primary" id="ui-dialog-ok" onclick="uiDialogClose(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <div id="sfx-modal" onclick="if(event.target===this)closeSfxModal()">
   <div class="r2-card" role="dialog" aria-label="Sound effects">
     <div class="r2-head"><span>Sound effects</span><button class="r2-close" onclick="closeSfxModal()" aria-label="Close">✕</button></div>
@@ -5225,10 +5252,11 @@ async function createNewProject() {
 }
 
 // Delete project
-function deleteProject(projectId, event) {
+async function deleteProject(projectId, event) {
   event.stopPropagation();
   
-  if (!db || !confirm('Delete this project? This cannot be undone.')) return;
+  if (!db) return;
+  if (!(await uiConfirm({ title: 'Delete this project?', message: 'The project and its audio will be removed from this browser.', note: 'This cannot be undone.', confirmText: 'Delete project', danger: true }))) return;
   
   try {
   const transaction = db.transaction(['projects'], 'readwrite');
@@ -8064,10 +8092,10 @@ function tlToggle(force) {
 
 // -- audio clips --
 function tlOpenR2() { openR2Modal(); r2SetMode('audio'); }
-function tlRemoveTrack(id) {
+async function tlRemoveTrack(id) {
   if (TL.tracks.length < 2) return;
   const t = TL.tracks.find(x => x.id === id); if (!t) return;
-  if (t.clips.length && !confirm(`Remove "${t.name}" and its ${t.clips.length} clip${t.clips.length > 1 ? 's' : ''}?\n\nYou can bring it back with Undo.`)) return;
+  if (t.clips.length && !(await uiConfirm({ title: `Remove "${t.name}"?`, message: `The track and its ${t.clips.length} clip${t.clips.length > 1 ? 's' : ''} will be removed from the timeline.`, note: 'You can bring it back with Undo (Ctrl+Z).', confirmText: 'Remove track', danger: true }))) return;
   pushUndoSnapshot();
   TL.tracks = TL.tracks.filter(x => x.id !== id);
   if (TL.activeTrack === id) TL.activeTrack = TL.tracks[0].id;
@@ -10682,6 +10710,40 @@ async function arAddSelected() {
   if (n) { arMsg(''); showToast(n === 1 ? 'Added to the board' : n + ' added to the board'); closeArrowsModal(); }
 }
 
+// ── In-app confirmation dialog (replaces the browser's confirm()) ──
+// uiConfirm({ title, message, note, confirmText, cancelText, danger }) -> Promise<boolean>
+const _UI_ICON_WARN = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+const _UI_ICON_TRASH = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+let _uiDialogResolve = null;
+function uiConfirm(o) {
+  if (_uiDialogResolve) uiDialogClose(false);                    // never stack two dialogs
+  const back = document.getElementById('ui-dialog'), box = back.querySelector('.ui-dialog');
+  box.classList.toggle('danger', !!o.danger);
+  document.getElementById('ui-dialog-icon').innerHTML = o.danger ? _UI_ICON_TRASH : _UI_ICON_WARN;
+  document.getElementById('ui-dialog-title').textContent = o.title || 'Are you sure?';
+  document.getElementById('ui-dialog-msg').textContent = o.message || '';
+  const note = document.getElementById('ui-dialog-note'); note.textContent = o.note || ''; note.style.display = o.note ? '' : 'none';
+  const ok = document.getElementById('ui-dialog-ok'), cancel = document.getElementById('ui-dialog-cancel');
+  ok.textContent = o.confirmText || 'Confirm'; cancel.textContent = o.cancelText || 'Cancel';
+  ok.className = 'r2-btn ' + (o.danger ? 'danger-solid' : 'primary');
+  back.classList.add('open');
+  // destructive actions start on Cancel so a stray Enter cannot delete anything
+  setTimeout(() => (o.danger ? cancel : ok).focus(), 0);
+  return new Promise(res => { _uiDialogResolve = res; });
+}
+function uiDialogClose(result) {
+  document.getElementById('ui-dialog').classList.remove('open');
+  const r = _uiDialogResolve; _uiDialogResolve = null; if (r) r(!!result);
+}
+document.addEventListener('keydown', e => {
+  if (!_uiDialogResolve) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); uiDialogClose(false); }
+  else if (e.key === 'Tab') {                                     // keep focus inside the dialog
+    const a = document.getElementById('ui-dialog-cancel'), b = document.getElementById('ui-dialog-ok');
+    if (document.activeElement === (e.shiftKey ? a : b)) { e.preventDefault(); (e.shiftKey ? b : a).focus(); }
+  }
+}, true);
+
 function openR2Modal() {
   let saved = null;
   try { saved = { url: localStorage.getItem('r2Url'), token: localStorage.getItem('r2Token'), wtoken: localStorage.getItem('r2WriteToken') }; } catch (e) {}
@@ -11017,7 +11079,7 @@ async function r2Reload(mustInclude, path) {
 async function _r2Put(key, body, type) {
   let res = await _r2Fetch('/file?key=' + encodeURIComponent(key), { method: 'PUT', body, headers: { 'Content-Type': type } }, true);
   if (res.status === 409) {
-    if (!confirm(`"${key.slice(R2.prefix.length)}" already exists in R2. Replace it?`)) return 'skipped';
+    if (!(await uiConfirm({ title: 'Replace the file in R2?', message: `"${key.slice(R2.prefix.length)}" already exists in the bucket.`, note: 'Replacing overwrites it with the new image.', confirmText: 'Replace', cancelText: 'Keep the existing one', danger: true }))) return 'skipped';
     res = await _r2Fetch('/file?key=' + encodeURIComponent(key) + '&overwrite=1', { method: 'PUT', body, headers: { 'Content-Type': type } }, true);
     const old = R2.thumbs.get(key); if (old) { URL.revokeObjectURL(old); R2.thumbs.delete(key); }
   }
@@ -11054,7 +11116,7 @@ async function r2DeleteSelected() {
   const keys = [...R2.selected];
   if (!keys.length || !R2.wtoken) return;
   const label = keys.length === 1 ? `"${keys[0].slice(R2.prefix.length)}"` : `${keys.length} images`;
-  if (!confirm(`Delete ${label} from R2?\n\nThey are moved to ${R2.prefix}.trash/ in the bucket, so you can still recover them from the Cloudflare dashboard.`)) return;
+  if (!(await uiConfirm({ title: keys.length === 1 ? 'Delete this image from R2?' : `Delete ${keys.length} images from R2?`, message: keys.length === 1 ? label : 'The selected images will be deleted from the bucket.', note: `They are moved to ${R2.prefix}.trash/ in the bucket, so you can still recover them from the Cloudflare dashboard.`, confirmText: keys.length === 1 ? 'Delete image' : `Delete ${keys.length} images`, danger: true }))) return;
   let ok = 0, failed = 0, lastErr = '';
   for (const [i, key] of keys.entries()) {
     _r2Msg(`Deleting ${i + 1} of ${keys.length}…`);
@@ -11104,7 +11166,7 @@ function r2RenameAudio(it, nameEl) {
 async function r2DeleteAudio(it) {
   if (!R2.wtoken) return;
   const label = it.key.slice(R2.aprefix.length);
-  if (!confirm(`Delete "${label}" from R2?\n\nIt is moved to ${R2.aprefix}.trash/ in the bucket, so you can still recover it from the Cloudflare dashboard.`)) return;
+  if (!(await uiConfirm({ title: 'Delete this narration from R2?', message: label, note: `It is moved to ${R2.aprefix}.trash/ in the bucket, so you can still recover it from the Cloudflare dashboard.`, confirmText: 'Delete narration', danger: true }))) return;
   _r2Msg('Deleting…');
   try {
     const res = await _r2Fetch('/file?key=' + encodeURIComponent(it.key), { method: 'DELETE' }, true);
