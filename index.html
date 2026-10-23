@@ -10533,6 +10533,12 @@ function _r2Err(status, write) {
   if (status === 415) return 'Not a valid image.';
   return 'The Worker answered ' + status + '.';
 }
+// Message for a failed write: the generic text plus whatever reason the Worker sent back ({ error: '…' }).
+async function _r2Fail(res, audio, what) {
+  let reason = ''; try { reason = (await res.clone().json()).error || ''; } catch (e) {}
+  const base = audio ? _r2AudioErr(res.status, what) : _r2Err(res.status, true);
+  return reason && !base.includes(reason) ? `${base} (${res.status}: ${reason})` : base;
+}
 function _r2Fetch(path, opts, write) {
   const url = R2.url.replace(/\/+$/, '') + path;
   const headers = { Authorization: 'Bearer ' + (write ? R2.wtoken : R2.token), ...(opts && opts.headers) };
@@ -10801,7 +10807,7 @@ function r2RenderAudio() {
     const meta = document.createElement('div'); meta.className = 'r2-meta'; meta.textContent = (it.size / 1048576).toFixed(1) + ' MB';
     const ren = document.createElement('button'); ren.className = 'r2-act'; ren.textContent = 'Rename'; ren.disabled = !R2.wtoken;
     const del = document.createElement('button'); del.className = 'r2-act danger'; del.textContent = 'Delete'; del.disabled = !R2.wtoken;
-    ren.title = del.title = R2.wtoken ? '' : 'Enter a write token and reconnect to rename or delete';
+    ren.title = del.title = R2.wtoken ? '' : 'No write token: open “Connection”, enter it and press Connect';
     ren.onclick = e => { e.stopPropagation(); r2RenameAudio(it, name); };
     del.onclick = e => { e.stopPropagation(); r2DeleteAudio(it); };
     row.append(tick, name, meta, ren, del);
@@ -10952,9 +10958,11 @@ function _r2UpdateCount(shown, nFolders) {
   document.getElementById('r2-upload').disabled = !canWrite;
   document.getElementById('r2-folder').disabled = !canWrite;
   document.getElementById('r2-delete').disabled = !canWrite || n === 0;
-  document.getElementById('r2-tools-hint').textContent = canWrite
+  const hint = document.getElementById('r2-tools-hint');
+  hint.textContent = canWrite
     ? 'Uploads go to the folder above. Deleting moves images to a .trash/ folder in the bucket; it does not erase them.'
-    : 'Enter a write token and reconnect to upload or delete.';
+    : 'Upload and delete are off: no write token. ';
+  if (!canWrite) { const a = document.createElement('a'); a.href = '#'; a.textContent = 'Add the write token'; a.onclick = e => { e.preventDefault(); r2ToggleConnect(); }; hint.appendChild(a); }
 }
 
 // ── Upload / delete (need the write token) ──
@@ -11017,7 +11025,7 @@ async function r2DeleteSelected() {
     _r2Msg(`Deleting ${i + 1} of ${keys.length}…`);
     try {
       const res = await _r2Fetch('/file?key=' + encodeURIComponent(key), { method: 'DELETE' }, true);
-      if (!res.ok) throw new Error(_r2Err(res.status, true));
+      if (!res.ok) throw new Error(await _r2Fail(res, false));
       ok++; R2.selected.delete(key);
       const old = R2.thumbs.get(key); if (old) { URL.revokeObjectURL(old); R2.thumbs.delete(key); }
     } catch (err) { failed++; lastErr = err.message; if (/write token/.test(err.message)) break; }
@@ -11048,7 +11056,7 @@ function r2RenameAudio(it, nameEl) {
     _r2Msg('Renaming…');
     try {
       const res = await _r2Fetch('/rename?from=' + encodeURIComponent(it.key) + '&to=' + encodeURIComponent(to), { method: 'POST' }, true);
-      if (!res.ok) throw new Error(_r2AudioErr(res.status, 'renaming'));
+      if (!res.ok) throw new Error(await _r2Fail(res, true, 'renaming'));
       if (R2.selected.delete(it.key)) R2.selected.add(to);
       it.key = to;
       _r2Msg(`Renamed to "${v + ext}".`);
@@ -11065,7 +11073,7 @@ async function r2DeleteAudio(it) {
   _r2Msg('Deleting…');
   try {
     const res = await _r2Fetch('/file?key=' + encodeURIComponent(it.key), { method: 'DELETE' }, true);
-    if (!res.ok) throw new Error(_r2AudioErr(res.status, 'deleting'));
+    if (!res.ok) throw new Error(await _r2Fail(res, true, 'deleting'));
     R2.aitems = R2.aitems.filter(x => x.key !== it.key); R2.selected.delete(it.key);
     _r2Msg(`"${label}" moved to the trash.`);
   } catch (err) { _r2Msg(err.message, true); }
