@@ -1,6 +1,8 @@
 // Gallery gateway for a private R2 bucket, used by Inkplainer's "Import from R2".
 //
 //   GET    /list?prefix=&cursor=  -> { prefix, items: [{ key, size, uploaded }], cursor, truncated }   (API_TOKEN)
+//   GET    /list?prefix=&delimiter=/ -> same, but only the images directly inside `prefix`, plus `folders`:
+//                                    the sub-folder keys ("<PREFIX>Project A/"), so the app can browse project by project
 //   GET    /list?kind=audio       -> same, for the narration folder (AUDIO_PREFIX, audio files only)    (API_TOKEN)
 //   GET    /file?key=             -> the image (or narration audio) bytes                               (API_TOKEN)
 //   PUT    /file?key=[&overwrite=1] body = image                                                        (WRITE_TOKEN)
@@ -58,13 +60,17 @@ export default {
       const sub = url.searchParams.get('prefix') || '';
       const listPrefix = base + sub;
       if (!safeKey(listPrefix, base)) return json({ error: 'bad prefix' }, 400);
+      const delimiter = url.searchParams.get('delimiter') === '/' ? '/' : undefined;
       const res = await env.ASSETS.list({
         prefix: listPrefix,
         cursor: url.searchParams.get('cursor') || undefined,
         limit: MAX_PAGE,
+        delimiter,
       });
       return json({
         prefix: base,
+        // only present when browsing by folder; its absence tells the app this Worker predates folder browsing
+        ...(delimiter ? { folders: (res.delimitedPrefixes || []).filter(f => !f.startsWith(base + TRASH)) } : {}),
         items: res.objects
           .filter(o => ext.test(o.key) && !o.key.startsWith(base + TRASH))
           .map(o => ({ key: o.key, size: o.size, uploaded: o.uploaded })),

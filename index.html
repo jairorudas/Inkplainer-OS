@@ -1407,6 +1407,17 @@ input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
 .r2-name { padding: 4px 6px; font-size: 10px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .r2-tick { position: absolute; top: 5px; left: 5px; width: 16px; height: 16px; border-radius: 50%; background: #6c63ff; color: #fff; font-size: 10px; display: none; align-items: center; justify-content: center; }
 .r2-item.sel .r2-tick { display: flex; }
+.r2-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 12px; margin-bottom: 8px; }
+.r2-crumbs button { border: 0; background: none; font: inherit; color: var(--muted-hi); cursor: pointer; padding: 3px 6px; border-radius: 5px; }
+.r2-crumbs button:hover { background: #ececec; color: var(--text); }
+.r2-crumbs button.cur { color: var(--text); font-weight: 600; cursor: default; }
+.r2-crumbs .sep { color: var(--muted); }
+.r2-folder .r2-thumb { position: relative; background: linear-gradient(160deg, #f4f1ff, #e9e6fb); }
+.r2-folder .r2-thumb img { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); opacity: .55; object-fit: cover; border-radius: 6px; }
+.r2-folder .r2-thumb svg { position: relative; color: #6c63ff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.2)); }
+.r2-folder .r2-name { font-weight: 600; font-size: 11px; padding-bottom: 0; }
+.r2-folder .r2-sub { padding: 0 6px 5px; font-size: 10px; color: var(--muted); }
+.r2-empty { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: 12px; padding: 24px 0; }
 .r2-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); }
 
 /* ── Textarea ── */
@@ -4687,8 +4698,9 @@ input[type="number"]:focus { border-color: var(--accent); }
       </div>
       <div class="r2-msg" id="r2-msg"></div>
       <div id="r2-browser" style="display:none">
-        <div class="r2-row" style="margin-bottom:8px"><button class="r2-btn primary" id="r2-mode-images" onclick="r2SetMode('images')">Images</button><button class="r2-btn" id="r2-mode-audio" onclick="r2SetMode('audio')">Narration</button></div>
-        <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter by name or folder…" oninput="r2Render()"></div>
+        <div class="r2-row" style="margin-bottom:8px"><button class="r2-btn primary" id="r2-mode-images" onclick="r2SetMode('images')">Images</button><button class="r2-btn" id="r2-mode-audio" onclick="r2SetMode('audio')">Narration</button><span style="flex:1"></span><button class="r2-btn" id="r2-conn-btn" onclick="r2ToggleConnect()" title="Change the Worker URL or the tokens">Connection</button></div>
+        <div class="r2-crumbs" id="r2-crumbs"></div>
+        <div class="r2-row"><input type="search" id="r2-filter" placeholder="Filter this folder…" oninput="r2Render()"></div>
         <div class="r2-row" id="r2-tools" style="margin-top:8px">
           <input type="text" id="r2-folder" value="uploads" placeholder="Folder for uploads" style="max-width:170px" title="Folder (inside the Worker's prefix) that new photos go to" autocomplete="off" spellcheck="false">
           <button class="r2-btn" id="r2-upload" onclick="document.getElementById('r2-upload-input').click()">Upload photos</button>
@@ -10507,7 +10519,7 @@ fileInput.addEventListener('change', ()=>{ loadDroppedFiles(fileInput.files); fi
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPORT FROM CLOUDFLARE R2 — talks to the read-only Worker (worker/r2-gallery)
 // ═══════════════════════════════════════════════════════════════════════════
-const R2 = { url: '', token: '', wtoken: '', prefix: '', mode: 'images', connected: false, aitems: [], acursor: null, aprefix: '', aloaded: false, items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
+const R2 = { path: '', folders: [], legacy: false, meta: new Map(), url: '', token: '', wtoken: '', prefix: '', mode: 'images', connected: false, aitems: [], acursor: null, aprefix: '', aloaded: false, items: [], cursor: null, selected: new Set(), thumbs: new Map(), queue: [], active: 0, io: null };
 const R2_MAX_CONCURRENT = 4;
 
 function _r2Msg(text, isErr) {
@@ -10674,7 +10686,8 @@ function openR2Modal() {
   document.getElementById('r2-forget').style.display = saved && saved.token ? '' : 'none';
   document.getElementById('r2-modal').classList.add('open');
   _r2Msg('');
-  if (R2.items.length) { document.getElementById('r2-browser').style.display = ''; r2Render(); }
+  document.getElementById('r2-connect').style.display = R2.connected ? 'none' : '';
+  if (R2.connected) { document.getElementById('r2-browser').style.display = ''; r2Render(); }
 }
 function closeR2Modal() {
   document.getElementById('r2-modal').classList.remove('open');
@@ -10685,6 +10698,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('r2-modal').classList.contains('open')) closeR2Modal();
 });
 
+function r2ToggleConnect() { const c = document.getElementById('r2-connect'); c.style.display = c.style.display === 'none' ? '' : 'none'; }
 function r2Forget() {
   try { localStorage.removeItem('r2Token'); localStorage.removeItem('r2WriteToken'); localStorage.removeItem('r2Url'); } catch (e) {}
   R2.token = ''; R2.wtoken = ''; document.getElementById('r2-token').value = ''; document.getElementById('r2-wtoken').value = '';
@@ -10704,8 +10718,8 @@ async function r2Connect() {
   R2.aitems = []; R2.acursor = null; R2.aloaded = false; R2.connected = false;
   R2.url = url; R2.token = token; R2.wtoken = wtoken; R2.items = []; R2.cursor = null; R2.selected.clear();
   try {
-    const page = await _r2Get('/list');
-    R2.items = page.items; R2.cursor = page.cursor; R2.prefix = page.prefix || '';
+    R2.legacy = false; R2.meta.clear(); R2.path = '';
+    await r2Open('', { fresh: true });
     try {
       if (document.getElementById('r2-remember').checked) {
         localStorage.setItem('r2Url', url); localStorage.setItem('r2Token', token);
@@ -10713,9 +10727,8 @@ async function r2Connect() {
       } else { localStorage.removeItem('r2Token'); localStorage.removeItem('r2WriteToken'); localStorage.setItem('r2Url', url); }
     } catch (e) {}
     document.getElementById('r2-browser').style.display = '';
-    R2.connected = true;
-    _r2Msg(R2.items.length || R2.mode === 'audio' ? '' : 'Connected, but there are no images in this folder.');
-    r2Render();
+    R2.connected = true; document.getElementById('r2-connect').style.display = 'none';   // the folders get the room; "Connection" brings it back
+    _r2Msg('');
     if (R2.mode === 'audio') r2LoadAudio();
   } catch (err) {
     R2.token = ''; R2.wtoken = '';
@@ -10732,8 +10745,8 @@ async function r2LoadMore() {
       const page = await _r2Get('/list?kind=audio&cursor=' + encodeURIComponent(R2.acursor));
       R2.aitems.push(...page.items); R2.acursor = page.cursor; r2Render(); return;
     }
-    const page = await _r2Get('/list?cursor=' + encodeURIComponent(R2.cursor));
-    R2.items.push(...page.items); R2.cursor = page.cursor; r2Render();
+    const page = await _r2Level(R2.path, R2.cursor);
+    R2.items.push(...page.items); R2.folders = _r2MergeFolders(R2.folders, page.folders); R2.cursor = page.cursor; r2Render();
   } catch (err) { _r2Msg(err.message, true); } finally { btn.disabled = false; }
 }
 
@@ -10757,7 +10770,8 @@ function r2SetMode(mode) {
   document.getElementById('r2-tools').style.display = audio ? 'none' : '';
   document.getElementById('r2-tools-hint').style.display = audio ? 'none' : '';
   document.getElementById('r2-import').textContent = audio ? 'Add to timeline' : 'Import selected';
-  document.getElementById('r2-filter').placeholder = audio ? 'Filter narrations…' : 'Filter by name or folder…';
+  document.getElementById('r2-filter').placeholder = audio ? 'Filter narrations…' : 'Filter this folder…';
+  document.getElementById('r2-crumbs').style.display = audio ? 'none' : '';
   document.getElementById('r2-grid').classList.toggle('audio', audio);
   _r2Msg('');
   if (!R2.connected) return;                       // the connect form is still showing
@@ -10797,19 +10811,118 @@ function r2RenderAudio() {
   document.getElementById('r2-more').style.display = R2.acursor ? '' : 'none';
   _r2UpdateCount(items.length);
 }
+// ── Folder browsing: the bucket is organised as one folder per project ──
+// Paths are relative to the Worker's prefix and end with "/" ('' = the root, i.e. all projects).
+const _r2Collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+function _r2MergeFolders(a, b) { return [...new Set([...a, ...(b || [])])].sort(_r2Collator.compare); }
+
+// One page of one folder level. A Worker that knows `delimiter` answers with `folders`; an older one ignores it and
+// returns every image below the prefix, so the level is derived here (bounded to ~2000 images).
+async function _r2Level(path, cursor) {
+  const q = '/list?prefix=' + encodeURIComponent(path) + '&delimiter=%2F' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+  let page = await _r2Get(q);
+  R2.prefix = page.prefix || R2.prefix;
+  if (Array.isArray(page.folders)) {
+    return { items: page.items, cursor: page.cursor, folders: page.folders.map(f => f.slice(R2.prefix.length)) };
+  }
+  R2.legacy = true;
+  let all = page.items;
+  for (let n = 0; page.cursor && n < 20; n++) { page = await _r2Get(q.replace(/&cursor=.*$/, '') + '&cursor=' + encodeURIComponent(page.cursor)); all = all.concat(page.items); }
+  const items = [], count = new Map(), cover = new Map();
+  for (const it of all) {
+    const rel = it.key.slice(R2.prefix.length + path.length), i = rel.indexOf('/');
+    if (i < 0) { items.push(it); continue; }
+    const f = path + rel.slice(0, i + 1);
+    count.set(f, (count.get(f) || 0) + 1); if (!cover.has(f)) cover.set(f, it.key);
+  }
+  for (const [f, n] of count) R2.meta.set(f, { images: n, more: false, cover: cover.get(f), folders: 0, exact: true });
+  return { items, cursor: null, folders: [...count.keys()].sort(_r2Collator.compare) };
+}
+
+async function r2Open(path, opts = {}) {
+  R2.path = path;
+  if (!opts.keepFilter) document.getElementById('r2-filter').value = '';
+  const page = await _r2Level(path);
+  R2.items = page.items; R2.cursor = page.cursor; R2.folders = _r2MergeFolders([], page.folders);
+  // after an upload, keep paging until the new files are on screen (bounded)
+  const want = opts.mustInclude || [];
+  for (let n = 0; want.length && R2.cursor && n < 30 && !want.every(k => R2.items.some(i => i.key === k)); n++) {
+    const more = await _r2Level(path, R2.cursor);
+    R2.items.push(...more.items); R2.folders = _r2MergeFolders(R2.folders, more.folders); R2.cursor = more.cursor;
+  }
+  const f = document.getElementById('r2-folder'); if (f && path) f.value = path.replace(/\/$/, '');   // uploads follow the open project
+  if (R2.connected || opts.fresh) { document.getElementById('r2-browser').style.display = ''; }
+  r2Render();
+}
+function r2Go(path) {
+  _r2Msg('Loading…');
+  r2Open(path).then(() => _r2Msg('')).catch(err => _r2Msg(err.message, true));
+}
+function _r2Crumbs() {
+  const el = document.getElementById('r2-crumbs'); el.textContent = '';
+  const segs = R2.path.split('/').filter(Boolean);
+  const add = (label, path, cur) => {
+    if (el.childNodes.length) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '›'; el.appendChild(s); }
+    const b = document.createElement('button'); b.textContent = label; b.title = label;
+    if (cur) b.className = 'cur'; else b.onclick = () => r2Go(path);
+    el.appendChild(b);
+  };
+  add('All projects', '', !segs.length);
+  segs.forEach((s, i) => add(s, segs.slice(0, i + 1).join('/') + '/', i === segs.length - 1));
+}
+const _R2_FOLDER_SVG = '<svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+function _r2FolderSub(m) {
+  if (!m) return '';
+  const parts = [];
+  if (m.folders) parts.push(m.folders + (m.folders === 1 ? ' folder' : ' folders'));
+  parts.push(m.images + (m.more ? '+' : '') + (m.images === 1 ? ' image' : ' images'));
+  return parts.join(' · ');
+}
+// Cover picture + counts of a folder card, fetched when the card scrolls into view (one small list call each).
+async function _r2FolderMeta(path, cell) {
+  let m = R2.meta.get(path);
+  if (!m) {
+    try {
+      const page = await _r2Get('/list?prefix=' + encodeURIComponent(path) + '&delimiter=%2F');
+      m = { images: page.items.length, more: !!page.cursor, folders: (page.folders || []).length, cover: page.items[0] && page.items[0].key };
+      if (!m.cover && page.folders && page.folders.length) {                 // a folder of folders: borrow a cover from its first child
+        try { const sub = await _r2Get('/list?prefix=' + encodeURIComponent(page.folders[0].slice(R2.prefix.length)) + '&delimiter=%2F'); m.cover = sub.items[0] && sub.items[0].key; } catch (e) {}
+      }
+      R2.meta.set(path, m);
+    } catch (e) { return; }
+  }
+  const sub = cell.querySelector('.r2-sub'); if (sub) sub.textContent = _r2FolderSub(m);
+  const img = cell.querySelector('img');
+  if (m.cover && img) { if (R2.thumbs.has(m.cover)) img.src = R2.thumbs.get(m.cover); else { R2.queue.push({ key: m.cover, img }); _r2Pump(); } }
+}
+
 function r2Render() {
   if (R2.mode === 'audio') { r2RenderAudio(); return; }
+  _r2Crumbs();
   const grid = document.getElementById('r2-grid');
   const q = document.getElementById('r2-filter').value.trim().toLowerCase();
   const items = R2.items.filter(it => !q || it.key.toLowerCase().includes(q));
+  const folders = R2.folders.filter(f => !q || f.toLowerCase().includes(q));
   grid.textContent = '';
   if (R2.io) R2.io.disconnect();
   R2.io = new IntersectionObserver(entries => entries.forEach(en => {
     if (!en.isIntersecting) return;
     R2.io.unobserve(en.target);
+    if (en.target.dataset.folder) { _r2FolderMeta(en.target.dataset.folder, en.target); return; }
     const img = en.target.querySelector('img'), key = en.target.dataset.key;
     if (R2.thumbs.has(key)) img.src = R2.thumbs.get(key); else { R2.queue.push({ key, img }); _r2Pump(); }
   }), { root: document.querySelector('.r2-body'), rootMargin: '120px' });
+  folders.forEach(path => {
+    const cell = document.createElement('div');
+    cell.className = 'r2-item r2-folder'; cell.dataset.folder = path; cell.title = path;
+    const thumb = document.createElement('div'); thumb.className = 'r2-thumb';
+    thumb.appendChild(document.createElement('img')); thumb.insertAdjacentHTML('beforeend', _R2_FOLDER_SVG);
+    const name = document.createElement('div'); name.className = 'r2-name'; name.textContent = path.replace(/\/$/, '').split('/').pop();
+    const sub = document.createElement('div'); sub.className = 'r2-sub'; sub.textContent = _r2FolderSub(R2.meta.get(path)) || ' ';
+    cell.append(thumb, name, sub);
+    cell.onclick = () => r2Go(path);
+    grid.appendChild(cell); R2.io.observe(cell);
+  });
   items.forEach(it => {
     const cell = document.createElement('div');
     cell.className = 'r2-item' + (R2.selected.has(it.key) ? ' sel' : '');
@@ -10822,14 +10935,18 @@ function r2Render() {
     cell.onclick = () => { R2.selected.has(it.key) ? R2.selected.delete(it.key) : R2.selected.add(it.key); cell.classList.toggle('sel'); _r2UpdateCount(); };
     grid.appendChild(cell); R2.io.observe(cell);
   });
+  if (!folders.length && !items.length) {
+    const e = document.createElement('div'); e.className = 'r2-empty';
+    e.textContent = q ? 'Nothing here matches the filter.' : R2.cursor ? 'Loading…' : R2.path ? 'This folder has no images.' : 'No images or folders yet.';
+    grid.appendChild(e);
+  }
   document.getElementById('r2-more').style.display = R2.cursor ? '' : 'none';
-  _r2UpdateCount(items.length);
+  _r2UpdateCount(items.length, folders.length);
 }
-function _r2UpdateCount(shown) {
+function _r2UpdateCount(shown, nFolders) {
   const audio = R2.mode === 'audio';
-  const list = audio ? R2.aitems : R2.items;
-  const n = [...R2.selected].filter(k => list.some(i => i.key === k)).length;
-  document.getElementById('r2-count').textContent = (shown !== undefined ? shown + (audio ? ' files · ' : ' images · ') : '') + n + ' selected';
+  const n = audio ? [...R2.selected].filter(k => R2.aitems.some(i => i.key === k)).length : R2.selected.size;   // selection survives moving between folders
+  document.getElementById('r2-count').textContent = (nFolders ? nFolders + (nFolders === 1 ? ' folder · ' : ' folders · ') : '') + (shown !== undefined ? shown + (audio ? ' files · ' : ' images · ') : '') + n + ' selected';
   document.getElementById('r2-import').disabled = n === 0;
   const canWrite = !!R2.wtoken;
   document.getElementById('r2-upload').disabled = !canWrite;
@@ -10847,16 +10964,9 @@ function _r2CleanName(n) { return n.normalize('NFC').replace(/[^\p{L}\p{N} ._\-(
 function _r2Folder(raw) {
   return raw.split('/').map(seg => seg.trim()).filter(seg => seg && seg !== '.' && seg !== '..').map(_r2CleanName).join('/');
 }
-async function r2Reload(mustInclude) {
-  let page = await _r2Get('/list');
-  R2.items = page.items; R2.cursor = page.cursor; R2.prefix = page.prefix || R2.prefix;
-  // Keep paging until freshly uploaded files are on screen (bounded).
-  for (let n = 0; mustInclude && mustInclude.length && R2.cursor && n < 30 && !mustInclude.every(k => R2.items.some(i => i.key === k)); n++) {
-    page = await _r2Get('/list?cursor=' + encodeURIComponent(R2.cursor));
-    R2.items.push(...page.items); R2.cursor = page.cursor;
-  }
-  R2.selected = new Set([...R2.selected].filter(k => R2.items.some(i => i.key === k)));
-  r2Render();
+async function r2Reload(mustInclude, path) {
+  R2.meta.clear();                                   // counts and covers may have changed
+  await r2Open(path === undefined ? R2.path : path, { mustInclude, keepFilter: true });
 }
 
 // Shared by "Upload photos" and the layer's "Save to R2": PUT with a write token; on a name clash asks
@@ -10891,7 +11001,7 @@ async function r2Upload(fileList) {
       ok++; uploaded.push(key);
     } catch (err) { failed++; lastErr = err.message; if (/write token/.test(err.message)) break; }
   }
-  try { await r2Reload(uploaded); } catch (e) {}
+  try { await r2Reload(uploaded, folder ? folder + '/' : ''); } catch (e) {}
   const parts = [];
   if (ok) parts.push(`${ok} uploaded`); if (skipped) parts.push(`${skipped} skipped`); if (failed) parts.push(`${failed} failed${lastErr ? ' (' + lastErr + ')' : ''}`);
   _r2Msg(parts.join(', ') + '.', failed > 0);
