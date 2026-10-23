@@ -133,7 +133,7 @@
   const markDot = (x, y) => dot(x, y, 2.2);
 
 
-  // ---- speech / thought bubbles (320x200 box; the tail points to the lower left, mirror = lower right) ----
+  // ---- speech bubbles (320x200 box; the tail points to the lower left, mirror = lower right) ----
   const BW = 320, BH = 200;
   const mirrorX = pts => pts.map(([x, y]) => [BW - x, y]);
   function bubOval(ww, r, mir) {
