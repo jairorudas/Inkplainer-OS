@@ -4782,7 +4782,7 @@ function saveProject(projectId = currentProjectId) {
           slideHandStyle: layer.slideHandStyle || 'auto',
           cameraMode: layer.cameraMode,
           cameraDurationMs: layer.cameraDurationMs,
-          camFrame: layer.camFrame || null,
+          camFrame: layer.camFrame || null, camZoom: layer.camZoom || null,
           rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
           fx: layer.fx ? { ...layer.fx } : null,
           exit: layer.exit ? { ...layer.exit } : null,
@@ -4955,7 +4955,7 @@ function loadProject(projectId) {
                 slideHandStyle: layerData.slideHandStyle || 'auto',
                 cameraMode: layerData.cameraMode || 'none',
                 cameraDurationMs: layerData.cameraDurationMs ?? 1200,
-                camFrame: layerData.camFrame || null,
+                camFrame: layerData.camFrame || null, camZoom: layerData.camZoom || null,
                 rotation: layerData.rotation || 0, lockAspect: layerData.lockAspect !== false,
                 fx: layerData.fx ? { ...layerData.fx } : null,
                 exit: layerData.exit ? { ...layerData.exit } : null,
@@ -5425,7 +5425,7 @@ function _serializeState() {
       slideHandStyle: layer.slideHandStyle || 'auto',
       cameraMode: layer.cameraMode,
       cameraDurationMs: layer.cameraDurationMs,
-      camFrame: layer.camFrame ? { ...layer.camFrame } : null,
+      camFrame: layer.camFrame ? { ...layer.camFrame } : null, camZoom: layer.camZoom || null,
       rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
       fx: layer.fx ? { ...layer.fx } : null,
       exit: layer.exit ? { ...layer.exit } : null,
@@ -5584,7 +5584,7 @@ function _applySnapshot(snap, label) {
           slideHandStyle: ld.slideHandStyle || 'auto',
           cameraMode: ld.cameraMode || 'none',
           cameraDurationMs: ld.cameraDurationMs ?? 1200,
-          camFrame: ld.camFrame ? { ...ld.camFrame } : null,
+          camFrame: ld.camFrame ? { ...ld.camFrame } : null, camZoom: ld.camZoom || null,
           rotation: ld.rotation || 0, lockAspect: ld.lockAspect !== false,
           fx: ld.fx ? { ...ld.fx } : null,
           exit: ld.exit ? { ...ld.exit } : null,
@@ -6821,7 +6821,7 @@ function addLayer(img, name) {
     slideHandStyle: 'auto',
     cameraMode: 'none',
     cameraDurationMs: 1200,
-    camFrame: null,
+    camFrame: null, camZoom: null,
     rotation: 0, lockAspect: true,
     fx: null,
     exit: null,
@@ -7111,7 +7111,51 @@ function _cameraTargetForGroup(group) {
   });
   const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
   const x1 = Math.max(...boxes.map(b => b.x + b.w)), y1 = Math.max(...boxes.map(b => b.y + b.h));
-  return { target: _cameraFit({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), durMs };
+  const fit = _cameraFit({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  const zl = focus.find(l => l.camZoom);
+  return { target: zl ? _cameraAtZoom(fit, zl.camZoom) : fit, durMs };
+}
+// The same shot centered where the automatic fit is, but at a chosen zoom level (1× = the whole world).
+function _cameraAtZoom(view, zoom) {
+  const aspect = state.canvasW / state.canvasH;
+  const w = Math.min(state.canvasW, Math.max(videoSize()[0] * 0.1, state.canvasW / zoom)), h = w / aspect;
+  const cx = view.x + view.w / 2, cy = view.y + view.w / aspect / 2;
+  return { x: Math.min(Math.max(cx - w / 2, 0), state.canvasW - w), y: Math.min(Math.max(cy - h / 2, 0), state.canvasH - h), w };
+}
+// Zoom level of the shot this layer will use (canvas width / shot width), or null when it keeps the view.
+function _layerZoomLevel(layer) {
+  if (!layer || (layer.cameraMode || 'none') === 'none') return null;
+  const t = _cameraTargetForGroup([layer]);
+  return t ? state.canvasW / t.target.w : null;
+}
+function setCameraZoom(val, label) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  if (!layer._zoomUndo) pushUndoSnapshot();
+  clearTimeout(layer._zoomUndoT); layer._zoomUndo = true; layer._zoomUndoT = setTimeout(() => { layer._zoomUndo = false; }, 500);
+  const z = Math.max(1, Math.min(8, Number(val) || 1));
+  if (layer.cameraMode === 'frame') {                         // resize the orange frame around its center
+    const f = _frameBounds(layer.camFrame || _cameraFit(layerBBox(layer))), aspect = state.canvasW / state.canvasH;
+    layer.camFrame = _cameraAtZoom({ x: f.x, y: f.y, w: f.w }, z);
+    drawSelectionHandles();
+  } else layer.camZoom = z;
+  if (label) label.textContent = z.toFixed(1) + '×';
+  const hint = document.getElementById('cam-sharp-hint'); if (hint) hint.outerHTML = cameraSharpHtml(layer);
+  scheduleAutoSave();
+}
+function setCameraZoomAuto() {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); layer.camZoom = null;
+  renderLayerList(); scheduleAutoSave();
+}
+// How sharp the shot will look: the scene is drawn once at the canvas resolution, so a shot narrower than the exported
+// frame is enlarged and softens. Sharp as long as the shot is at least as wide as the video frame.
+function cameraSharpHtml(layer) {
+  const z = _layerZoomLevel(layer); if (z === null) return '<div id="cam-sharp-hint"></div>';
+  const up = Math.max(1, z * videoSize()[0] / state.canvasW);   // enlargement factor in the exported video
+  const ok = up <= 1.001;
+  return `<div id="cam-sharp-hint" style="font-size:9px;line-height:1.4;margin:2px 0 8px;color:${ok ? '#16a34a' : up < 1.6 ? '#b45309' : '#dc2626'}">${ok
+    ? 'Sharp: this shot shows at least the full frame resolution.'
+    : `Enlarged ${up.toFixed(1)}×: the picture will look soft${up >= 1.6 ? ' / pixelated' : ''}. Use a lower zoom, make the layer bigger, or pick a higher video resolution.`}</div>`;
 }
 
 function setCameraMode(el) {
@@ -8409,6 +8453,16 @@ function _buildLayerItem(layer) {
         <div class="anim-opt" onclick="useViewAsCameraFrame()">Use view</div>
         <div class="anim-opt" onclick="previewCameraFrame()">Preview</div>
       </div>` : ''}
+      ${['layer', 'group', 'frame'].includes(layer.cameraMode || 'none') ? (() => {
+        const zl = _layerZoomLevel(layer) || 1, auto = layer.cameraMode !== 'frame' && !layer.camZoom;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span style="font-size:9px;color:var(--muted)">Zoom level</span>${layer.cameraMode !== 'frame' ? `<span class="anim-opt${auto ? ' selected' : ''}" style="padding:2px 8px;font-size:9px" onclick="event.stopPropagation();setCameraZoomAuto()">Auto</span>` : ''}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
+        <input type="range" min="1" max="8" step="0.1" value="${zl.toFixed(1)}" data-slider-fill
+          onclick="event.stopPropagation()"
+          oninput="event.stopPropagation();updateRangeFill(this);setCameraZoom(this.value, this.nextElementSibling)">
+        <span style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${zl.toFixed(1)}×</span>
+      </div>
+      ${cameraSharpHtml(layer)}`; })() : ''}
       ${(layer.cameraMode || 'none') !== 'none' ? `<div style="font-size:9px;color:var(--muted);margin-bottom:3px">Move duration</div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
         <input type="range" min="0.3" max="4" step="0.1" value="${(layer.cameraDurationMs ?? 1200) / 1000}"
