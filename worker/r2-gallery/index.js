@@ -15,7 +15,8 @@
 //   API_TOKEN        secret; read access:  "Authorization: Bearer <token>"
 //   WRITE_TOKEN      secret; upload/delete access. Without it, writes are refused (the Worker stays read-only).
 //   ALLOWED_ORIGINS  comma-separated origins allowed by CORS
-//   PREFIX           folder that may be listed/read/written, e.g. "production/" (default: whole bucket)
+//   PREFIX           folder that may be listed/read/written, e.g. "production/"; empty = the whole bucket (every
+//                    project folder at the root). The narration folder and .trash/ are hidden from the image browser.
 //   AUDIO_PREFIX     optional folder with narration audio, e.g. "narration/". Files can be listed, read, renamed and
 //                    soft-deleted (to <AUDIO_PREFIX>.trash/) with the write token; audio upload is not supported.
 
@@ -70,7 +71,7 @@ export default {
       return json({
         prefix: base,
         // only present when browsing by folder; its absence tells the app this Worker predates folder browsing
-        ...(delimiter ? { folders: (res.delimitedPrefixes || []).filter(f => !f.startsWith(base + TRASH)) } : {}),
+        ...(delimiter ? { folders: (res.delimitedPrefixes || []).filter(f => !f.startsWith(base + TRASH) && !(!audio && audioPrefix && f === audioPrefix)) } : {}),
         items: res.objects
           .filter(o => ext.test(o.key) && !o.key.startsWith(base + TRASH))
           .map(o => ({ key: o.key, size: o.size, uploaded: o.uploaded })),

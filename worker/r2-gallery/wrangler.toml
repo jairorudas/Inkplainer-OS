@@ -12,8 +12,9 @@ binding = "ASSETS"
 bucket_name = "como-funciona-assets"
 
 [vars]
-# Only this folder can be listed or read.
-PREFIX = "production/"
+# Only this folder can be listed or read. Empty = the whole bucket (one folder per project at the root).
+# Use e.g. "production/" to limit the app to a single folder.
+PREFIX = ""
 # Narration audio for the timeline: read-only, audio files only.
 AUDIO_PREFIX = "narration/"
 # Comma-separated origins allowed by CORS.
