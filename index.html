@@ -4909,6 +4909,7 @@ function saveProject(projectId = currentProjectId) {
           rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
           fx: layer.fx ? { ...layer.fx } : null,
           exit: layer.exit ? { ...layer.exit } : null,
+          enter: layer.enter ? { ...layer.enter } : null,
           // Text layer properties
           kind: layer.kind,
           textProps: layer.textProps,
@@ -5084,6 +5085,7 @@ function loadProject(projectId) {
                 rotation: layerData.rotation || 0, lockAspect: layerData.lockAspect !== false,
                 fx: layerData.fx ? { ...layerData.fx } : null,
                 exit: layerData.exit ? { ...layerData.exit } : null,
+                enter: layerData.enter ? { ...layerData.enter } : null,
                 // Text layer properties
                 kind: layerData.kind || null,
                 textProps: layerData.textProps || null,
@@ -5564,6 +5566,7 @@ function _serializeState() {
       rotation: layer.rotation || 0, lockAspect: layer.lockAspect !== false,
       fx: layer.fx ? { ...layer.fx } : null,
       exit: layer.exit ? { ...layer.exit } : null,
+      enter: layer.enter ? { ...layer.enter } : null,
     })),
   };
 }
@@ -5723,6 +5726,7 @@ function _applySnapshot(snap, label) {
           rotation: ld.rotation || 0, lockAspect: ld.lockAspect !== false,
           fx: ld.fx ? { ...ld.fx } : null,
           exit: ld.exit ? { ...ld.exit } : null,
+          enter: ld.enter ? { ...ld.enter } : null,
           _origImg: origImg || undefined,
           _origX: ld.origX, _origY: ld.origY,
           _origW: ld.origW, _origH: ld.origH,
@@ -6641,12 +6645,57 @@ function fxPaint(c, spec, st, snap, k, box) {
 function fxReset() {
   const fx = state._fx; if (fx && fx.raf) cancelAnimationFrame(fx.raf);
   state.layers.forEach(l => { l._fxLive = false; l._fxGone = false; });
-  state._fx = { live: [], raf: 0, tail: null, gate: null, gated: -1 };
+  state._fx = { live: [], raf: 0, tail: null, gate: null, gated: -1, enter: null, enteredAt: -1, enterLogged: -1, entered: new Set() };
 }
 function fxExitCfg(layer) {
   if (!layer) return null;
   if (layer.groupId != null) { const g = state.groups.find(x => x.id === layer.groupId); return g && g.exit && fxSpec(g.exit.name) ? g.exit : null; }
   return layer.exit && fxSpec(layer.exit.name) ? layer.exit : null;
+}
+// ── Entrance: the scene plays an animate.css "in" effect (fadeIn, zoomIn, slideInLeft…) BEFORE the first element of a group
+// (or of an image that is in no group) starts to be drawn. The scene = the background plus whatever is still on screen, so
+// it is clearest after a group that leaves the scene (exit); the effect starts from "empty" (transparent).
+// state.groups[i].enter / layer.enter = { name, durMs }
+function fxEnterOptionsHtml(selected) {
+  const A = window.ANIMATE_CSS || {};
+  let html = `<option value="">None (starts drawing right away)</option>`;
+  FX_CATS.forEach(cat => {
+    const names = Object.keys(A).filter(n => A[n].c === cat && A[n].r === 'in');
+    if (!names.length) return;
+    html += `<optgroup label="${cat}">` + names.map(n => `<option value="${n}"${n === selected ? ' selected' : ''}>${fxLabel(n)}</option>`).join('') + `</optgroup>`;
+  });
+  return html;
+}
+// The entrance to play before animation group `gpos`: a folder group's once (when its first image is reached), or the own entrance of a loose image.
+function fxEnterCfg(gpos) {
+  const fx = state._fx; if (!fx) return null;
+  for (const l of (state._animGroups && state._animGroups[gpos]) || []) {
+    if (l.groupId != null) {
+      const g = state.groups.find(x => x.id === l.groupId);
+      if (g && g.enter && fxSpec(g.enter.name) && !fx.entered.has(g.id)) { fx.entered.add(g.id); return g.enter; }
+    } else if (l.enter && fxSpec(l.enter.name)) return l.enter;
+  }
+  return null;
+}
+function fxRunEnter(cfg, done) {
+  const fx = state._fx, id = state._runId, spec = fxSpec(cfg.name), W = state.canvasW, H = state.canvasH;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'), slotMode = state._slotMode;
+  state._slotMode = false; fillBg(g); state._slotMode = slotMode;            // background + everything already baked
+  fx.live.forEach(it => g.drawImage(it.snap.canvas, it.snap.x, it.snap.y));  // and images that are still moving / waiting to leave
+  fx.enter = { spec, snap: { canvas: cv, x: 0, y: 0, w: W, h: H }, dur: Math.max(100, cfg.durMs || fxDefaultDur(cfg.name)), start: tlRunMs(), done: () => { if (id === state._runId) done(); } };
+  setTimeout(() => { if (state._fx === fx && fx.enter) { state.playing = true; updatePlayIcons(); } }, 0);   // not inside the ticker's call (see fxEnterTail)
+  fxEnsureLoop();
+}
+function fxEnterFrame(fx) {
+  const e = fx.enter, el = tlRunMs() - e.start, k = videoSize()[0] / 1280;
+  _mainCtx.save(); state._slotMode = false;
+  if (el >= e.dur) {                                                          // over: show the scene as it is and let the group start
+    fx.enter = null; fillBg(_mainCtx); fxDrawLive(_mainCtx); _mainCtx.restore(); e.done(); return;
+  }
+  _mainCtx.clearRect(0, 0, state.canvasW, state.canvasH);
+  fxPaint(_mainCtx, e.spec, fxEval(e.spec, el / e.dur), e.snap, k, null);
+  _mainCtx.restore();
 }
 function fxWantsLive(layer) {
   return !!(layer && ((layer.fx && fxSpec(layer.fx.name)) || fxExitCfg(layer)));
@@ -6746,9 +6795,10 @@ function fxEnsureLoop() {
 function fxIdleFrame() {
   const fx = state._fx; if (!fx) return;
   if (state._runLog && state._runLog.pausedAt != null) return;                          // paused
-  const running = state.playing && !fx.tail && !fx.gate && state._activeSlots && state._activeSlots.some(s => !s.done);
+  const running = state.playing && !fx.tail && !fx.gate && !fx.enter && state._activeSlots && state._activeSlots.some(s => !s.done);
   if (running) return;                                                                   // the slot ticker draws them
-  if (!fx.live.length && !fx.tail && !fx.gate) { cancelAnimationFrame(fx.raf); fx.raf = 0; return; }
+  if (!fx.live.length && !fx.tail && !fx.gate && !fx.enter) { cancelAnimationFrame(fx.raf); fx.raf = 0; return; }
+  if (fx.enter) { fxEnterFrame(fx); return; }
   _mainCtx.save(); state._slotMode = false; fillBg(_mainCtx); fxDrawLive(_mainCtx); _mainCtx.restore();
   if (fx.gate && ![...fx.gate.layers].some(l => fx.live.some(it => it.layer === l))) {   // everything that had to leave has left
     const g = fx.gate; fx.gate = null; g.done(); return;
@@ -6832,6 +6882,67 @@ function setGroupExitNum(gid, key, sec, label) {
   clearTimeout(g._exitUndoTimer); g._exitUndoTimer = setTimeout(() => { g._exitUndoTimer = null; }, 500);
   _exitNum(g.exit, key, sec); if (label) label.textContent = (g.exit[key] / 1000).toFixed(1) + 's';
   scheduleAutoSave();
+}
+// ── Enters the scene: same controls for a group (state.groups[i].enter) and for an image in no group ──
+function _enterDur(cfg, sec) { cfg.durMs = Math.round(Math.max(0.2, Math.min(6, sec)) * 1000); }
+function setLayerEnter(id, name) {
+  const l = getLayerById(id); if (!l) return;
+  pushUndoSnapshot();
+  l.enter = name ? { name, durMs: fxDefaultDur(name) } : null;
+  renderLayerList(); scheduleAutoSave();
+}
+function setLayerEnterDur(id, sec, label) {
+  const l = getLayerById(id); if (!l || !l.enter) return;
+  if (!l._enterUndoTimer) pushUndoSnapshot();
+  clearTimeout(l._enterUndoTimer); l._enterUndoTimer = setTimeout(() => { l._enterUndoTimer = null; }, 500);
+  _enterDur(l.enter, sec); if (label) label.textContent = (l.enter.durMs / 1000).toFixed(1) + 's';
+  scheduleAutoSave();
+}
+function setGroupEnter(gid, name) {
+  const g = state.groups.find(x => x.id === gid); if (!g) return;
+  pushUndoSnapshot();
+  g.enter = name ? { name, durMs: fxDefaultDur(name) } : null;
+  renderLayerList(); scheduleAutoSave();
+}
+function setGroupEnterDur(gid, sec, label) {
+  const g = state.groups.find(x => x.id === gid); if (!g || !g.enter) return;
+  if (!g._enterUndoTimer) pushUndoSnapshot();
+  clearTimeout(g._enterUndoTimer); g._enterUndoTimer = setTimeout(() => { g._enterUndoTimer = null; }, 500);
+  _enterDur(g.enter, sec); if (label) label.textContent = (g.enter.durMs / 1000).toFixed(1) + 's';
+  scheduleAutoSave();
+}
+state._grpEnterOpen = state._grpEnterOpen || new Set();
+function toggleGroupEnterPanel(gid) {
+  if (state._grpEnterOpen.has(gid)) state._grpEnterOpen.delete(gid); else state._grpEnterOpen.add(gid);
+  const el = document.getElementById('grp-enter-' + gid); if (el) el.style.display = state._grpEnterOpen.has(gid) ? 'block' : 'none';
+}
+// Plays the entrance on the editor canvas: the images take part as one piece around the whole canvas (the background stays).
+function fxPreviewEnter(cfg) {
+  if (!cfg || state.playing) return; const spec = fxSpec(cfg.name); if (!spec) return;
+  const items = state.layers.filter(l => l.visible !== false).map(_fxSnapOf); if (!items.length) return;
+  _fxPlayPreview(items, spec, Math.max(100, cfg.durMs || fxDefaultDur(cfg.name)), 1, { x: 0, y: 0, w: state.canvasW, h: state.canvasH });
+}
+const ENTER_HINT = 'Plays <b>before</b> the first element starts: the scene (background and whatever is still on screen) enters with this effect, then the elements appear with their own settings. It looks best after a group that leaves the scene.';
+function enterPanelInner(cfg, nameCall, durCall, previewCall) {
+  const sel = `style="width:100%;margin-bottom:6px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);outline:none;"`;
+  const ex = cfg && fxSpec(cfg.name) ? cfg : null;
+  return `<select ${sel} onclick="event.stopPropagation()" onchange="event.stopPropagation();${nameCall}">${fxEnterOptionsHtml(ex && ex.name)}</select>
+    ${ex ? `<div style="font-size:9px;color:var(--muted);margin-bottom:3px">Entering takes</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;" onclick="event.stopPropagation()">
+      <input type="range" min="0.2" max="6" step="0.1" value="${(ex.durMs || fxDefaultDur(ex.name)) / 1000}" data-slider-fill
+        onclick="event.stopPropagation()" oninput="event.stopPropagation();updateRangeFill(this);${durCall}">
+      <span style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">${((ex.durMs || fxDefaultDur(ex.name)) / 1000).toFixed(1)}s</span>
+    </div>
+    <button class="tl-btn" style="margin-bottom:4px" onclick="event.stopPropagation();${previewCall}">▶ Preview</button>
+    <div class="grp-exit-hint">${ENTER_HINT}</div>`
+    : `<div class="grp-exit-hint">Pick an animate.css entrance (fadeIn, zoomIn, slideInLeft…). The scene plays it first, and then the drawing starts as usual.</div>`}`;
+}
+function groupEnterPanelHtml(grp) {
+  const open = state._grpEnterOpen.has(grp.id);
+  return `<div class="grp-exit-panel" id="grp-enter-${grp.id}" style="display:${open ? 'block' : 'none'}" onclick="event.stopPropagation()">
+    <div class="grp-exit-title">This group enters the scene</div>
+    ${enterPanelInner(grp.enter, `setGroupEnter(${grp.id},this.value)`, `setGroupEnterDur(${grp.id},+this.value,this.nextElementSibling)`, `fxPreviewEnter(state.groups.find(x=>x.id===${grp.id}).enter)`)}
+  </div>`;
 }
 state._grpExitOpen = state._grpExitOpen || new Set();
 function toggleGroupExitPanel(gid) {
@@ -6964,6 +7075,7 @@ function addLayer(img, name) {
     rotation: 0, lockAspect: true,
     fx: null,
     exit: null,
+    enter: null,
     hasPngAlpha };
   state.layers.push(layer);
   
@@ -7514,8 +7626,15 @@ function _runGroupAt(gpos) {
     const leaving = fxExitPlan(gpos);
     if (leaving.length) { state._fx.gated = gpos; fxGate(leaving, () => _runGroupAt(gpos)); return; }
   }
+  // Entrance of the group (or of a loose image): the scene plays its "in" effect first, then the drawing starts
+  if (!state._fx) fxReset();
+  if (state._fx.enteredAt !== gpos) {
+    state._fx.enteredAt = gpos;
+    const enter = fxEnterCfg(gpos);
+    if (enter) { tlLogBegin(gpos); state._fx.enterLogged = gpos; fxRunEnter(enter, () => _runGroupAt(gpos)); return; }   // the group's time on the timeline includes its entrance
+  }
   state._groupPos = gpos;
-  tlLogBegin(gpos);
+  if (state._fx.enterLogged !== gpos) tlLogBegin(gpos);
   const group     = state._animGroups[gpos];
 
   // Pre-build the final image canvas for live reveal blending
@@ -8542,6 +8661,9 @@ function renderLayerList() {
         <input class="layer-group-name-input" value="${grp.name}" onclick="event.stopPropagation()"
           onchange="renameGroup(${grp.id},this.value)" onfocus="event.stopPropagation()">
         <span class="layer-group-count">${grpLayers.length}</span>
+        <button class="layer-group-exit${grp.enter && fxSpec(grp.enter.name) ? ' on' : ''}" onclick="event.stopPropagation();toggleGroupEnterPanel(${grp.id})" title="${grp.enter && fxSpec(grp.enter.name) ? 'This group enters the scene with ' + fxLabel(grp.enter.name) : 'Make this group enter the scene (fade in…)'}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        </button>
         <button class="layer-group-exit${grp.exit && fxSpec(grp.exit.name) ? ' on' : ''}" onclick="event.stopPropagation();toggleGroupExitPanel(${grp.id})" title="${grp.exit && fxSpec(grp.exit.name) ? 'This group leaves the scene with ' + fxLabel(grp.exit.name) : 'Make this group leave the scene (fade out…)'}">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         </button>
@@ -8550,6 +8672,7 @@ function renderLayerList() {
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
         </button>
       </div>
+      ${groupEnterPanelHtml(grp)}
       ${groupExitPanelHtml(grp)}
       <div class="layer-group-body" id="grp-body-${grp.id}"></div>`;
 
@@ -8693,6 +8816,8 @@ function _buildLayerItem(layer) {
       </div>`}
       <button class="tl-btn" style="margin-bottom:4px" onclick="event.stopPropagation();fxPreview(${layer.id})">▶ Preview effect</button>
       <div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">Plays on the image after it has appeared.${fxSpec(layer.fx.name).r === 'out' ? ' This one makes the image disappear.' : ''}</div>` : `<div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">From animate.css. The effect plays on the image after it has appeared.</div>`}
+      <div class="section-label" style="margin-top:12px">Enters the scene</div>
+      ${layer.groupId ? `<div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">This image belongs to a group, and the <b>group</b> enters the scene as a whole. Set it with the <b>⇤</b> button on the group's row.</div>` : enterPanelInner(layer.enter, `setLayerEnter(${layer.id},this.value)`, `setLayerEnterDur(${layer.id},+this.value,this.nextElementSibling)`, `fxPreviewEnter(getLayerById(${layer.id}).enter)`)}
       <div class="section-label" style="margin-top:12px">Leaves the scene</div>
       ${layer.groupId ? `<div style="font-size:9px;color:var(--muted);margin-bottom:6px;line-height:1.4">This image belongs to a group, and the <b>group</b> leaves the scene as a whole. Set it with the <b>⇥</b> button on the group's row.</div>` : `
       <select style="width:100%;margin-bottom:6px;font-size:11px;padding:5px 7px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;outline:none;"
@@ -11900,6 +12025,7 @@ function _commitTextLayer(text) {
       rotation: _oldLayer ? (_oldLayer.rotation || 0) : 0, lockAspect: _oldLayer ? _oldLayer.lockAspect !== false : true,
       fx: _oldLayer && _oldLayer.fx ? { ..._oldLayer.fx } : null,
       exit: _oldLayer && _oldLayer.exit ? { ..._oldLayer.exit } : null,
+      enter: _oldLayer && _oldLayer.enter ? { ..._oldLayer.enter } : null,
       cameraMode: _oldLayer ? (_oldLayer.cameraMode || 'none') : 'none',
       cameraDurationMs: _oldLayer ? (_oldLayer.cameraDurationMs ?? 1200) : 1200,
       hasPngAlpha: true,
@@ -14280,6 +14406,7 @@ function applySlices() {
     rotation: 0, lockAspect: layer.lockAspect !== false,
     fx: null,
     exit: null,
+    enter: null,
     cameraMode:         layer.cameraMode          || 'none',
     cameraDurationMs:   layer.cameraDurationMs    ?? 1200,
   };
