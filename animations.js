@@ -1907,12 +1907,15 @@ function _tickAllSlots() {
   const _origClear = hctx.clearRect.bind(hctx);
   hctx.clearRect = () => {};
 
+  // _tickSlot lends the Speed/Chunks sliders to each layer; the user's own values are put back after the frame
+  const _speedSnap = typeof speedSlidersSnapshot === 'function' ? speedSlidersSnapshot() : null;
   state._activeSlots.forEach(slot => {
     if (slot.done) return;
     _slotIn(slot);
     _tickSlot(slot);
     _slotOut(slot);
   });
+  if (_speedSnap) speedSlidersRestore(_speedSnap);
 
   hctx.clearRect = _origClear; // restore
 

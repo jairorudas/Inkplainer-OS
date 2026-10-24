@@ -6764,6 +6764,22 @@ function fxDrawLive(c) {
     fxPaint(c, it.exit.spec, fxEval(it.exit.spec, el / it.exit.dur), it.snap, k, it.exit.gid != null ? boxes[it.exit.gid] : null);
   });
 }
+// The animation engine uses the Speed / Chunks sliders as scratch variables: it writes each layer's values into them
+// (the drawing functions read the number straight from the slider) while that layer is being set up or ticked. Without
+// this, the sliders you chose jumped to another layer's numbers during Play and stayed there afterwards.
+// speedSlidersSnapshot() remembers what is on screen, speedSlidersRestore() puts it back.
+const _SPEED_SLIDERS = [['speed-slider', 'speed-val'], ['hand-speed-slider', 'hand-speed-val'], ['tile-slider', 'tile-val'], ['spec-tile-slider', 'spec-tile-val']];
+function speedSlidersSnapshot() {
+  return _SPEED_SLIDERS.map(([id, valId]) => { const el = document.getElementById(id); return el ? { el, valId, v: el.value } : null; }).filter(Boolean);
+}
+function speedSlidersRestore(snap) {
+  snap.forEach(({ el, valId, v }) => {
+    if (el.value === v) return;
+    el.value = v;
+    const lbl = document.getElementById(valId); if (lbl) lbl.textContent = v;
+    if (typeof updateSliderFill === 'function') updateSliderFill(el);
+  });
+}
 // Which images have to leave before animation group `gpos` may start: those of a (folder) group whose images have all
 // appeared, and lone images of the previous animation group that have an exit of their own.
 function fxExitPlan(gpos) {
@@ -7698,6 +7714,7 @@ function _runGroupAt(gpos) {
   });
 
   // Pre-render and setup each slot individually
+  const _speedSnap = speedSlidersSnapshot();                         // the slot setup below borrows the sliders
   state._activeSlots.forEach(slot => {
     const _prevStyle = state.animStyle;
     state.animStyle  = slot._state.animStyle;
@@ -7744,6 +7761,7 @@ function _runGroupAt(gpos) {
     setupStyle(); // writes all the tick-state into state.* from offscreen
     AnimationEngine._slotOut(slot);
   });
+  speedSlidersRestore(_speedSnap);                                   // ...and gives them back
 
   // Restore offscreen to something valid for legacy checks
   offscreen = state._activeSlots[state._activeSlots.length - 1]?.offscreen ?? offscreen;
