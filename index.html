@@ -7881,6 +7881,18 @@ function tlGroups() {
   }));
 }
 // Group blocks laid out back to back: measured seconds when known, an estimate otherwise.
+// The Groups lane is derived from the layers (their order, names, visibility), but the timeline only redrew itself on its
+// own actions, so removing / adding / reordering layers left a stale lane. renderLayerList (run after every layer change)
+// calls this: it redraws the timeline only when what the Groups lane would show has changed.
+let _tlGroupSig = null;
+const _tlGroupSigNow = () => tlGroups().map(g => g.sig + ':' + g.name).join('|');
+function tlSyncGroups() {
+  const sig = _tlGroupSigNow();
+  if (sig === _tlGroupSig) return;
+  const p = document.getElementById('timeline-panel');
+  if (p && !p.classList.contains('collapsed')) tlRender();           // tlRender records the signature it drew
+  else _tlGroupSig = null;                                           // collapsed: it is redrawn when it is opened
+}
 function tlLayout() {
   let t = 0;
   return tlGroups().map(g => {
@@ -7952,6 +7964,7 @@ function tlLogDone() {
 function tlFmt(sec) { const m = Math.floor(sec / 60); return m + ':' + (sec - m * 60).toFixed(1).padStart(4, '0'); }
 function tlRender() {
   const inner = document.getElementById('tl-inner'); if (!inner) return;
+  _tlGroupSig = _tlGroupSigNow();
   const total = tlTotal(), width = Math.ceil((total + 3) * TL.pps);
   inner.style.width = width + 'px';
   const frag = document.createDocumentFragment();
@@ -8556,6 +8569,7 @@ function renderLayerList() {
   setupLayerDrag();
   refreshLayerSliderVisuals(list);
   rpApplyLayerSubs(list);
+  tlSyncGroups();
 }
 
 function _buildLayerItem(layer) {
