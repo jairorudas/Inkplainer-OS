@@ -11967,9 +11967,18 @@ function _commitTextLayer(text) {
   const fontStr = `${italic?'italic ':''} ${bold?'bold ':''} ${size}px '${font}'`;
   pctx.font = fontStr;
   pctx.letterSpacing = sp + 'px';
-  const maxW = Math.min(state.canvasW, Math.max(...lines.map(l => pctx.measureText(l).width)) + size * 0.4);
-  const lineH = size * lh;
-  const totalH = lines.length * lineH + size * 0.3;
+  pctx.textBaseline = 'top';
+  // The size of the box comes from the real ink of the letters, not only from the font size: handwriting fonts have tall
+  // capitals, accents and long tails that go past the font's em square, and those were cut off at the edges of the image.
+  const metr = lines.map(l => pctx.measureText(l));
+  const ink = k => Math.max(0, ...metr.map(m => m[k] || 0));
+  const lineH = size * lh, top0 = size * 0.1;
+  const padTop = Math.ceil(ink('actualBoundingBoxAscent') + 2);                     // ink above the top of the em box
+  const inkBottom = top0 + (lines.length - 1) * lineH + ink('actualBoundingBoxDescent');   // ink below the first line's top baseline
+  const padL = Math.ceil(ink('actualBoundingBoxLeft') + 2);                          // ink left of where the text starts
+  const padR = Math.ceil(Math.max(0, ...metr.map(m => (m.actualBoundingBoxRight || 0) - m.width)) + 2);
+  const maxW = Math.min(state.canvasW, Math.max(...metr.map(m => m.width)) + size * 0.4) + padL + padR;
+  const totalH = Math.max(lines.length * lineH + size * 0.3 + padTop, padTop + inkBottom + size * 0.1);
 
   // Render onto a tight canvas (not full canvas size) to keep layer small
   const tc = document.createElement('canvas');
@@ -11981,8 +11990,9 @@ function _commitTextLayer(text) {
   tctx.fillStyle = color;
   tctx.textBaseline = 'top';
   tctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
-  const tx = align === 'center' ? tc.width/2 : align === 'right' ? tc.width : 0;
-  lines.forEach((ln, i) => tctx.fillText(ln, tx, i * lineH + size * 0.1));
+  const inner = tc.width - padL - padR;                                              // the part the text is aligned within
+  const tx = padL + (align === 'center' ? inner / 2 : align === 'right' ? inner : 0);
+  lines.forEach((ln, i) => tctx.fillText(ln, tx, padTop + i * lineH + top0));
 
   // Capture sync state before the async onload boundary —
   // _ts fields get cleared by closeTextEditor() before onload fires.
@@ -12010,6 +12020,7 @@ function _commitTextLayer(text) {
       }
     } else {
       pushUndoSnapshot();
+      finalX -= padL; finalY -= padTop;                         // the padding is part of the image: the letters stay where they were clicked
     }
 
     const id = ++_layerIdCounter;
