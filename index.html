@@ -4444,7 +4444,8 @@ input[type="number"]:focus { border-color: var(--accent); }
           </div>
           <div class="bg-grid-slider"><span>Cell size</span><input type="range" id="bg-grid-size" min="10" max="120" value="40" oninput="updateSliderFill(this);onBgGridChange()"><span class="slider-val" id="bg-grid-size-val">40</span></div>
           <div class="bg-grid-slider"><span>Line width</span><input type="range" id="bg-grid-weight" min="1" max="6" step="0.5" value="1" oninput="updateSliderFill(this);onBgGridChange()"><span class="slider-val" id="bg-grid-weight-val">1</span></div>
-          <div class="bg-grid-hint">Pick the paper and line colors; the canvas switches to a grid right away.</div>
+          <div class="bg-grid-hint">Pick the paper and line colors; the canvas switches to a grid right away. The lines stay when you pick another background.</div>
+          <button class="tl-btn" onclick="onBgGridOff()" title="Remove the grid lines from the background">No lines</button>
         </div>
         <div class="bg-section-label" style="margin-top:12px">Presets</div>
         <div class="bg-presets" id="bg-presets">
@@ -6527,6 +6528,7 @@ function fillBg(c) {
   } else {
     c.fillStyle='#fff'; c.fillRect(0,0,state.canvasW,state.canvasH);
   }
+  if (bg.lines && bg.type !== 'grid') drawGridLines(c, bg.lines);
   if (_bgFxAny(state.bgFx)) c.drawImage(bgFxOverlay(), 0, 0);     // paper effects: texture, creases, vignette, stains
   // Always composite completed layers — this ensures edgeCanvas/revealCanvas
   // intermediates also carry previous layers when blitted to ctx
@@ -6622,6 +6624,12 @@ function drawGridBg(c, bg) {
   const W = state.canvasW, H = state.canvasH, k = videoSize()[0] / 1280;
   const cell = Math.max(4, (bg.size || 40) * k), w = Math.max(1, Math.round((bg.weight || 1) * k));
   c.fillStyle = bg.val || '#ffffff'; c.fillRect(0, 0, W, H);
+  drawGridLines(c, bg);
+}
+// The grid lines alone; also laid over any other background that carries `lines` (see _carryLines).
+function drawGridLines(c, bg) {
+  const W = state.canvasW, H = state.canvasH, k = videoSize()[0] / 1280;
+  const cell = Math.max(4, (bg.size || 40) * k), w = Math.max(1, Math.round((bg.weight || 1) * k));
   c.fillStyle = bg.line || '#c8d8e8';
   for (let x = 0; x <= W; x += cell) c.fillRect(Math.round(x - w / 2), 0, w, H);
   for (let y = 0; y <= H; y += cell) c.fillRect(0, Math.round(y - w / 2), W, w);
@@ -10709,7 +10717,7 @@ function syncBgUI() {
   syncBgFxUI();
   const bg = state.canvasBg || { type: 'solid', val: 'white' };
   document.querySelectorAll('.bg-pill, .bg-preset').forEach(p => p.classList.remove('active'));
-  const box = document.getElementById('bg-grid-box'); if (box) box.classList.toggle('active', bg.type === 'grid');
+  const box = document.getElementById('bg-grid-box'); if (box) box.classList.toggle('active', bg.type === 'grid' || !!bg.lines);
   const swatch = document.getElementById('bg-custom-swatch'), input = document.getElementById('bg-color-input');
   const setCustom = v => { if (swatch) swatch.style.background = v; if (input && /^#[0-9a-f]{6}$/i.test(v)) input.value = v; };
   if (bg.type === 'solid') {
@@ -10726,6 +10734,11 @@ function syncBgUI() {
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
     set('bg-grid-base', bg.val || '#ffffff'); set('bg-grid-line', bg.line || '#c8d8e8');
     set('bg-grid-size', bg.size || 40); set('bg-grid-weight', bg.weight || 1);
+    document.querySelectorAll('#bg-grid-size, #bg-grid-weight').forEach(updateSliderFill);
+  }
+  if (bg.lines && bg.type !== 'grid') {      // lines carried over another background: show their settings
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+    set('bg-grid-line', bg.lines.line || '#c8d8e8'); set('bg-grid-size', bg.lines.size || 40); set('bg-grid-weight', bg.lines.weight || 1);
     document.querySelectorAll('#bg-grid-size, #bg-grid-weight').forEach(updateSliderFill);
   }
   // grid controls: swatches, readouts and the preview tile always show the current grid settings
@@ -10749,6 +10762,19 @@ function onBgGridChange() {
   state.canvasBg = { type: 'grid', val: v('bg-grid-base'), line: v('bg-grid-line'), size: +v('bg-grid-size'), weight: +v('bg-grid-weight') };
   syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
 }
+// Grid lines survive a change of background: the new background keeps them until "No lines" is pressed.
+function _carryLines(prev, next) {
+  const l = prev && (prev.type === 'grid' ? { line: prev.line, size: prev.size, weight: prev.weight } : prev.lines);
+  if (l) next.lines = l;
+  return next;
+}
+function onBgGridOff() {
+  const bg = state.canvasBg; if (!bg || (bg.type !== 'grid' && !bg.lines)) return;
+  pushUndoSnapshot();
+  if (bg.type === 'grid') state.canvasBg = { type: 'solid', val: bg.val || '#ffffff' };
+  else { state.canvasBg = { ...bg }; delete state.canvasBg.lines; }
+  syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
+}
 function selectBgPreset(el, type, val) {
   // Skip snapshot when called internally from _applySnapshot restore
   if (!_undoRestoring) pushUndoSnapshot();
@@ -10756,14 +10782,14 @@ function selectBgPreset(el, type, val) {
   document.querySelectorAll('.bg-pill, .bg-preset').forEach(p=>p.classList.remove('active'));
   if (el) el.classList.add('active');
   if (type === 'solid') {
-    state.canvasBg = { type:'solid', val };
+    state.canvasBg = _carryLines(state.canvasBg, { type:'solid', val });
     if (val !== 'transparent') {
       document.getElementById('bg-custom-swatch').style.background = val === 'white' ? '#ffffff' : val;
       document.getElementById('bg-color-input').value = val === 'white' ? '#ffffff' : val;
     }
   } else {
     // el is null when called from an undo/restore; keep the restored key then.
-    state.canvasBg = { type:'gradient', val, key: el ? el.dataset.bgKey : state.canvasBg?.key };
+    state.canvasBg = _carryLines(state.canvasBg, { type:'gradient', val, key: el ? el.dataset.bgKey : state.canvasBg?.key });
     if (el && state.canvasBg.key === 'kraft' && !_bgFxAny(state.bgFx)) state.bgFx = { ...BGFX_KRAFT, seed: (state.bgFx && state.bgFx.seed) || 7 };   // kraft paper looks like paper only with its texture
   }
   syncBgUI();
@@ -10775,7 +10801,7 @@ function selectBgTexture(id) {
   const t = BG_TEXTURES.find(x => x.id === id); if (!t) return;
   if (!_undoRestoring) pushUndoSnapshot();
   const keepTint = state.canvasBg && state.canvasBg.type === 'image' ? state.canvasBg.tint : null;
-  state.canvasBg = { type: 'image', src: 'assets/textures/' + t.id + '.jpg', name: t.label, fit: t.fit, scale: 100, tint: id === 'crumpled-white' ? '#fff3dc' : keepTint, avg: t.avg, tex: t.id };
+  state.canvasBg = _carryLines(state.canvasBg, { type: 'image', src: 'assets/textures/' + t.id + '.jpg', name: t.label, fit: t.fit, scale: 100, tint: id === 'crumpled-white' ? '#fff3dc' : keepTint, avg: t.avg, tex: t.id });
   syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
 }
 // Your own picture: downscaled to at most 2048 px and re-encoded as JPEG so the project stays a reasonable size.
@@ -10791,7 +10817,7 @@ function onBgImageFile(file) {
     const src = cv.toDataURL('image/jpeg', 0.88), d = document.createElement('canvas').getContext('2d'); d.canvas.width = d.canvas.height = 8; d.drawImage(cv, 0, 0, 8, 8);
     const px = d.getImageData(0, 0, 8, 8).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; }
     const n = px.length / 4, avg = '#' + [r, gg, b].map(v => Math.round(v / n).toString(16).padStart(2, '0')).join('');
-    state.canvasBg = { type: 'image', src, name: file.name.replace(/\.[^.]+$/, ''), fit: 'cover', scale: 100, tint: null, avg };
+    state.canvasBg = _carryLines(state.canvasBg, { type: 'image', src, name: file.name.replace(/\.[^.]+$/, ''), fit: 'cover', scale: 100, tint: null, avg });
     syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
     showToast('Background image set');
   };
@@ -10813,7 +10839,7 @@ function onBgColorInput(val) {
   // Deactivate presets, use custom solid
   document.querySelectorAll('.bg-pill, .bg-preset').forEach(p=>p.classList.remove('active'));
   document.getElementById('bg-custom-swatch').style.background = val;
-  state.canvasBg = { type:'custom', val };
+  state.canvasBg = _carryLines(state.canvasBg, { type:'custom', val });
   syncBgUI();
   fitCanvas();
   redrawWithBg();
