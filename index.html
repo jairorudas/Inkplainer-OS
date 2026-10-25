@@ -4479,6 +4479,25 @@ input[type="number"]:focus { border-color: var(--accent); }
             style="background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px),#f5ede0"
             onclick="selectBgPreset(this,'gradient','linen')"></div>
         </div>
+        <div class="bg-section-label" style="margin-top:12px">Paper photos &amp; your own image</div>
+        <div class="bg-presets" id="bg-textures">
+          <div class="bg-preset bg-tex" title="Crumpled white" data-tex="crumpled-white" style="background:url(assets/textures/thumbs/crumpled-white.jpg) center/cover" onclick="selectBgTexture('crumpled-white')"></div>
+          <div class="bg-preset bg-tex" title="Kraft" data-tex="kraft-fine" style="background:url(assets/textures/thumbs/kraft-fine.jpg) center/cover" onclick="selectBgTexture('kraft-fine')"></div>
+          <div class="bg-preset bg-tex" title="Brown kraft" data-tex="kraft-brown" style="background:url(assets/textures/thumbs/kraft-brown.jpg) center/cover" onclick="selectBgTexture('kraft-brown')"></div>
+          <div class="bg-preset bg-tex" title="Tan paper" data-tex="tan-smooth" style="background:url(assets/textures/thumbs/tan-smooth.jpg) center/cover" onclick="selectBgTexture('tan-smooth')"></div>
+          <div class="bg-preset bg-tex" title="Torn cardboard" data-tex="cardboard-torn" style="background:url(assets/textures/thumbs/cardboard-torn.jpg) center/cover" onclick="selectBgTexture('cardboard-torn')"></div>
+          <div class="bg-preset bg-tex" title="Worn cardboard" data-tex="cardboard-worn" style="background:url(assets/textures/thumbs/cardboard-worn.jpg) center/cover" onclick="selectBgTexture('cardboard-worn')"></div>
+          <div class="bg-preset bg-tex" title="White paper" data-tex="white-paper" style="background:url(assets/textures/thumbs/white-paper.jpg) center/cover" onclick="selectBgTexture('white-paper')"></div>
+          <div class="bg-preset bg-tex" title="Recycled paper" data-tex="recycled-grey" style="background:url(assets/textures/thumbs/recycled-grey.jpg) center/cover" onclick="selectBgTexture('recycled-grey')"></div>
+          <label class="bg-preset bg-tex-up" title="Use your own JPG / PNG as the background" style="display:flex;align-items:center;justify-content:center;border:2px dashed var(--border-hi);color:var(--muted-hi);font-size:18px;line-height:1;background:var(--panel)">+<input type="file" accept="image/*" style="display:none" onchange="onBgImageFile(this.files[0]); this.value=''"></label>
+        </div>
+        <div class="bg-fx-box" id="bg-img-box" style="display:none;margin-top:8px">
+          <div style="font-size:11px;color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="bg-img-name"></div>
+          <div class="bg-grid-slider"><span>Fit</span><select id="bg-img-fit" onchange="onBgImageOpt('fit',this.value)" style="flex:1;font-size:11px;padding:3px 5px;background:var(--panel);border:1px solid var(--border-hi);border-radius:6px;color:var(--text)"><option value="tile">Repeat (tile)</option><option value="cover">Fill the canvas</option></select></div>
+          <div class="bg-grid-slider" id="bg-img-scale-row"><span>Size</span><input type="range" id="bg-img-scale" min="30" max="200" value="100" oninput="updateSliderFill(this);onBgImageOpt('scale',this.value)"><span class="slider-val" id="bg-img-scale-val">100%</span></div>
+          <div class="bg-grid-slider"><span>Tint</span><div class="bg-color-swatch" id="bg-img-tint-sw" style="background:#fff"><input type="color" id="bg-img-tint" value="#ffffff" oninput="onBgImageOpt('tint',this.value)"></div><button class="tl-btn" onclick="onBgImageClearTint()" title="Remove the tint">No tint</button></div>
+          <div class="bg-grid-hint">Photos by ambientCG (CC0). A tint multiplies the colour, so the white crumpled paper can be made cream, pink, blue…</div>
+        </div>
         <div class="bg-section-label" style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">Paper effects
           <span style="display:flex;gap:4px"><button class="tl-btn" onclick="bgFxShuffle()" title="Another random pattern with the same amounts">⟳ Shuffle</button><button class="tl-btn" onclick="bgFxReset()" title="Turn every effect off">Reset</button></span></div>
         <div class="bg-fx-box">
@@ -5518,7 +5537,7 @@ function _serializeState() {
     canvasW: state.canvasW,
     canvasH: state.canvasH,
     worldMul: state.worldMul,
-    canvasBg: JSON.parse(JSON.stringify(state.canvasBg || { type:'solid', val:'#ffffff' })),
+    canvasBg: { ...(state.canvasBg || { type:'solid', val:'#ffffff' }) },
     bgFx: state.bgFx ? JSON.parse(JSON.stringify(state.bgFx)) : null,
     _currentRatio,
     _currentRes,
@@ -5637,7 +5656,7 @@ function _applySnapshot(snap, label) {
   state.canvasW          = snap.canvasW || 1280;
   state.canvasH          = snap.canvasH || 720;
   state.worldMul         = snap.worldMul || 1;
-  state.canvasBg         = JSON.parse(JSON.stringify(snap.canvasBg || { type:'solid', val:'#ffffff' }));
+  state.canvasBg         = { ...(snap.canvasBg || { type:'solid', val:'#ffffff' }) };
   state.bgFx             = snap.bgFx ? { ...snap.bgFx } : null;
   state.animStyle        = snap.animStyle || 'chunkjump';
   state.hand             = snap.hand || 'custom1';
@@ -6503,6 +6522,8 @@ function fillBg(c) {
     c.fillStyle = bg.val; c.fillRect(0,0,state.canvasW,state.canvasH);
   } else if (bg.type === 'grid') {
     drawGridBg(c, bg);
+  } else if (bg.type === 'image') {
+    drawImageBg(c, bg);
   } else {
     c.fillStyle='#fff'; c.fillRect(0,0,state.canvasW,state.canvasH);
   }
@@ -6606,6 +6627,44 @@ function drawGridBg(c, bg) {
   for (let y = 0; y <= H; y += cell) c.fillRect(0, Math.round(y - w / 2), W, w);
 }
 function fillBgOnCtx(c) { fillBg(c); }
+
+// ── Image as the canvas background: a ready-made paper photo (assets/textures, CC0) or your own JPG / PNG ──
+// state.canvasBg = { type: 'image', src, name, fit: 'tile' | 'cover', scale: 30..200 (% of 768 px, tile only), tint: '#rrggbb' | null, avg }
+// `src` is a path for the bundled ones, or a data URL (downscaled JPEG) for an uploaded file, so it is saved with the project.
+const BG_TEXTURES = [
+  { id: 'crumpled-white', label: 'Crumpled white', fit: 'tile', avg: '#dfdfdf' },
+  { id: 'kraft-fine', label: 'Kraft', fit: 'tile', avg: '#bf905c' },
+  { id: 'kraft-brown', label: 'Brown kraft', fit: 'tile', avg: '#a48767' },
+  { id: 'tan-smooth', label: 'Tan paper', fit: 'tile', avg: '#c8a778' },
+  { id: 'cardboard-torn', label: 'Torn cardboard', fit: 'tile', avg: '#af8d57' },
+  { id: 'cardboard-worn', label: 'Worn cardboard', fit: 'tile', avg: '#b88f4f' },
+  { id: 'white-paper', label: 'White paper', fit: 'cover', avg: '#f4f3f1' },
+  { id: 'recycled-grey', label: 'Recycled paper', fit: 'cover', avg: '#c3b9b3' }
+];
+const _bgImgCache = new Map();                                   // src -> { img, ready }
+function _bgImage(src) {
+  let e = _bgImgCache.get(src);
+  if (!e) {
+    e = { img: new Image(), ready: false, pat: null };
+    e.img.onload = () => { e.ready = true; if (state.canvasBg && state.canvasBg.src === src) { try { redrawWithBg(); } catch (err) {} } };
+    e.img.src = src; _bgImgCache.set(src, e);
+  }
+  return e;
+}
+function drawImageBg(c, bg) {
+  const W = state.canvasW, H = state.canvasH, e = _bgImage(bg.src);
+  if (!e.ready) { c.fillStyle = bg.avg || '#c8a778'; c.fillRect(0, 0, W, H); return; }      // average colour until the file has loaded
+  const img = e.img, k = W / 1280;
+  if (bg.fit === 'cover') {
+    const s = Math.max(W / img.naturalWidth, H / img.naturalHeight), w = img.naturalWidth * s, h = img.naturalHeight * s;
+    c.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+  } else {                                                       // tile: seamless textures repeat at a size that does not depend on the resolution
+    const s = (768 / img.naturalWidth) * (bg.scale || 100) / 100 * k;
+    if (!e.pat) e.pat = c.createPattern(img, 'repeat');
+    c.save(); c.scale(s, s); c.fillStyle = e.pat; c.fillRect(0, 0, W / s + 1, H / s + 1); c.restore();
+  }
+  if (bg.tint) { c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = bg.tint; c.fillRect(0, 0, W, H); c.restore(); }
+}
 
 initCanvas(1280,720);
 window.addEventListener('resize', fitCanvas);
@@ -10635,6 +10694,17 @@ function selectAnim(el) {
   scheduleAutoSave();
 }
 // Makes the Canvas Background panel match state.canvasBg (used after load, undo and every change).
+function syncBgImageUI(bg) {
+  document.querySelectorAll('.bg-tex').forEach(t => t.classList.toggle('active', bg.type === 'image' && bg.tex === t.dataset.tex));
+  const box = document.getElementById('bg-img-box'); if (!box) return;
+  box.style.display = bg.type === 'image' ? 'flex' : 'none';
+  if (bg.type !== 'image') return;
+  const g = id => document.getElementById(id);
+  g('bg-img-name').textContent = bg.name || 'Image'; g('bg-img-fit').value = bg.fit || 'cover';
+  g('bg-img-scale-row').style.display = bg.fit === 'tile' ? 'flex' : 'none';
+  g('bg-img-scale').value = bg.scale || 100; g('bg-img-scale-val').textContent = (bg.scale || 100) + '%'; updateSliderFill(g('bg-img-scale'));
+  g('bg-img-tint').value = bg.tint || '#ffffff'; g('bg-img-tint-sw').style.background = bg.tint || 'repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/8px 8px';
+}
 function syncBgUI() {
   syncBgFxUI();
   const bg = state.canvasBg || { type: 'solid', val: 'white' };
@@ -10668,6 +10738,7 @@ function syncBgUI() {
     g('bg-grid-preview').style.background =
       `linear-gradient(${line} ${Math.max(1, weight * 0.6)}px, transparent 0) 0 0/100% ${cell}px, linear-gradient(90deg, ${line} ${Math.max(1, weight * 0.6)}px, transparent 0) 0 0/${cell}px 100%, ${base}`;
   }
+  syncBgImageUI(bg);                      // last: the code above clears every .bg-preset highlight
 }
 // Any grid control: switch the canvas to a grid with the chosen colors/sizes.
 let _gridUndoTimer = null;
@@ -10700,6 +10771,43 @@ function selectBgPreset(el, type, val) {
   redrawWithBg();
   scheduleAutoSave();
 }
+function selectBgTexture(id) {
+  const t = BG_TEXTURES.find(x => x.id === id); if (!t) return;
+  if (!_undoRestoring) pushUndoSnapshot();
+  const keepTint = state.canvasBg && state.canvasBg.type === 'image' ? state.canvasBg.tint : null;
+  state.canvasBg = { type: 'image', src: 'assets/textures/' + t.id + '.jpg', name: t.label, fit: t.fit, scale: 100, tint: id === 'crumpled-white' ? '#fff3dc' : keepTint, avg: t.avg, tex: t.id };
+  syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
+}
+// Your own picture: downscaled to at most 2048 px and re-encoded as JPEG so the project stays a reasonable size.
+function onBgImageFile(file) {
+  if (!file || !/^image\//.test(file.type)) { showToast('Choose an image file (JPG, PNG, WebP…)'); return; }
+  const url = URL.createObjectURL(file), im = new Image();
+  im.onload = () => {
+    const s = Math.min(1, 2048 / Math.max(im.naturalWidth, im.naturalHeight)), cv = document.createElement('canvas');
+    cv.width = Math.round(im.naturalWidth * s); cv.height = Math.round(im.naturalHeight * s);
+    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(url);
+    pushUndoSnapshot();
+    const src = cv.toDataURL('image/jpeg', 0.88), d = document.createElement('canvas').getContext('2d'); d.canvas.width = d.canvas.height = 8; d.drawImage(cv, 0, 0, 8, 8);
+    const px = d.getImageData(0, 0, 8, 8).data; let r = 0, gg = 0, b = 0; for (let i = 0; i < px.length; i += 4) { r += px[i]; gg += px[i + 1]; b += px[i + 2]; }
+    const n = px.length / 4, avg = '#' + [r, gg, b].map(v => Math.round(v / n).toString(16).padStart(2, '0')).join('');
+    state.canvasBg = { type: 'image', src, name: file.name.replace(/\.[^.]+$/, ''), fit: 'cover', scale: 100, tint: null, avg };
+    syncBgUI(); fitCanvas(); redrawWithBg(); scheduleAutoSave();
+    showToast('Background image set');
+  };
+  im.onerror = () => { URL.revokeObjectURL(url); showToast('Could not read that image'); };
+  im.src = url;
+}
+let _bgImgUndoTimer = null;
+function onBgImageOpt(key, val) {                          // key: 'fit' | 'scale' | 'tint'
+  const bg = state.canvasBg; if (!bg || bg.type !== 'image') return;
+  if (!_bgImgUndoTimer) pushUndoSnapshot();
+  clearTimeout(_bgImgUndoTimer); _bgImgUndoTimer = setTimeout(() => { _bgImgUndoTimer = null; }, 600);
+  bg[key] = key === 'scale' ? +val : val;
+  const e = _bgImgCache.get(bg.src); if (e) e.pat = null;
+  syncBgUI(); redrawWithBg(); scheduleAutoSave();
+}
+function onBgImageClearTint() { onBgImageOpt('tint', null); }
 function onBgColorInput(val) {
   pushUndoSnapshot();
   // Deactivate presets, use custom solid
