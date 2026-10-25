@@ -366,7 +366,7 @@
       const tape = (cx, cy, deg) => rotP([[cx - 34, cy - 12], [cx + 34, cy - 12], [cx + 34, cy + 12], [cx - 34, cy + 12]], deg, cx, cy);
       return { sheets: [{ pts }], tapes: [tape(M + 26, M + 14, -34), tape(W - M - 26, M + 14, 34)] }; } },
   };
-  const PAPER_TEXTURES = { plain: 'Plain', grain: 'Fine grain', kraft: 'Kraft fibres', lined: 'Notebook lines', grid: 'Squared', dots: 'Dotted' };
+  const PAPER_TEXTURES = { plain: 'Plain', grain: 'Fine grain', crumpled: 'Crumpled', 'crumpled-heavy': 'Very crumpled', kraft: 'Kraft fibres', lined: 'Notebook lines', grid: 'Squared', dots: 'Dotted' };
 
   function paperSVG(variant, o) {
     const def = PAPER[variant] || PAPER.cut, [W, H] = def.dims, size = o.size || 400, color = o.color || '#fff7e6', tex = o.pen || 'plain';
@@ -380,6 +380,20 @@
     if (tex === 'lined') defs += `<pattern id="${id}p" width="40" height="24" patternUnits="userSpaceOnUse" y="14"><line x1="0" y1="23" x2="40" y2="23" stroke="#7d98cf" stroke-opacity=".6" stroke-width="1.6"/></pattern>`;
     if (tex === 'grid') defs += `<pattern id="${id}p" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#7d98cf" stroke-opacity=".5" stroke-width="1.2"/></pattern>`;
     if (tex === 'dots') defs += `<pattern id="${id}p" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="11" cy="11" r="1.7" fill="#6b7280" fill-opacity=".55"/></pattern>`;
+    // crumpled paper: low-poly light and shade on a jittered grid + creases along some edges + a soft light across the sheet
+    const crumple = (heavy, tag) => {
+      const k = heavy ? 1.22 : 1, rc = rng(seed * 13 + 5 + tag), cell = Math.max(34, Math.min(W, H) / (heavy ? 4.8 : 4.2)), cols = Math.ceil(W / cell) + 1, rows = Math.ceil(H / cell) + 1, P = [];
+      for (let j = 0; j <= rows; j++) { P.push([]); for (let i = 0; i <= cols; i++) P[j].push([i * cell + (rc() - .5) * cell * .75, j * cell + (rc() - .5) * cell * .75]); }
+      const tris = []; for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { const a = P[j][i], b = P[j][i + 1], c = P[j + 1][i], d = P[j + 1][i + 1]; tris.push([a, b, c], [b, d, c]); }
+      let o = '', facets = '';
+      tris.forEach(t => { const light = rc() > .5; facets += `<polygon points="${polyStr(t)}" fill="${light ? '#fff' : '#2a1a06'}" fill-opacity="${f(rc() * (light ? .2 : .15) * k)}"/>`; });
+      o += `<g filter="url(#${id}bl)">${facets}</g>`;                       // soft shading, so the facets do not read as polygons
+      tris.forEach(t => { if (rc() > (heavy ? .58 : .5)) return; const [u, v] = rc() > .5 ? [t[0], t[1]] : [t[1], t[2]];
+        o += `<line x1="${f(u[0])}" y1="${f(u[1])}" x2="${f(v[0])}" y2="${f(v[1])}" stroke="#2a1a06" stroke-opacity="${f((.09 + rc() * .12) * k)}" stroke-width="${f(.9 + rc() * 1.2)}" stroke-linecap="round"/>`
+           + `<line x1="${f(u[0] + 1.6)}" y1="${f(u[1] + 1.6)}" x2="${f(v[0] + 1.6)}" y2="${f(v[1] + 1.6)}" stroke="#fff" stroke-opacity="${f((.18 + rc() * .16) * k)}" stroke-width="1"/>`; });
+      return o + `<rect width="${W}" height="${H}" fill="url(#${id}lg)"/>`;
+    };
+    if (tex === 'crumpled' || tex === 'crumpled-heavy') defs += `<filter id="${id}bl" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="${tex === 'crumpled' ? 2.6 : 3}"/></filter><linearGradient id="${id}lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient>`;
     let body = '';
     scene.sheets.forEach((sh, i) => {
       const c = sh.tone ? mix(color, '#000000', sh.tone) : color, cp = `${id}c${i}`;
@@ -391,6 +405,7 @@
       if (tex === 'grain') over.push(`<rect width="${W}" height="${H}" filter="url(#${id}t)"/>`);
       if (tex === 'kraft') over.push(`<rect width="${W}" height="${H}" filter="url(#${id}t)"/>`, `<rect width="${W}" height="${H}" filter="url(#${id}t2)"/>`);
       if (tex === 'lined' || tex === 'grid' || tex === 'dots') over.push(`<rect width="${W}" height="${H}" fill="url(#${id}p)"/>`);
+      if (tex === 'crumpled' || tex === 'crumpled-heavy') over.push(crumple(tex === 'crumpled-heavy', i));
       if (tex === 'lined') over.push(`<line x1="${W * .13}" y1="0" x2="${W * .13}" y2="${H}" stroke="#e07a7a" stroke-opacity=".7" stroke-width="1.6"/>`);
       if (over.length) body += `<g clip-path="url(#${cp})">${over.join('')}</g>`;
       if (sh.fold) body += `<polygon points="${polyStr(sh.fold)}" fill="${mix(c, '#000000', .16)}" stroke="${edge}" stroke-opacity=".5" stroke-width="1" stroke-linejoin="round"/>`;
