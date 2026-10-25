@@ -1741,6 +1741,7 @@ input[type="number"]:focus { border-color: var(--accent); }
 }
 .bg-color-label { font-size: 11px; color: var(--muted-hi); flex: 1; }
 
+.bg-fx-box { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--panel); }
 .bg-presets {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -4478,6 +4479,16 @@ input[type="number"]:focus { border-color: var(--accent); }
             style="background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px),#f5ede0"
             onclick="selectBgPreset(this,'gradient','linen')"></div>
         </div>
+        <div class="bg-section-label" style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">Paper effects
+          <span style="display:flex;gap:4px"><button class="tl-btn" onclick="bgFxShuffle()" title="Another random pattern with the same amounts">⟳ Shuffle</button><button class="tl-btn" onclick="bgFxReset()" title="Turn every effect off">Reset</button></span></div>
+        <div class="bg-fx-box">
+          <div class="bg-grid-slider"><span>Grain</span><input type="range" id="bgfx-grain" min="0" max="100" value="0" oninput="updateSliderFill(this);onBgFxChange('grain',this.value)"><span class="slider-val" id="bgfx-grain-val">0</span></div>
+          <div class="bg-grid-slider"><span>Fibres</span><input type="range" id="bgfx-fibers" min="0" max="100" value="0" oninput="updateSliderFill(this);onBgFxChange('fibers',this.value)"><span class="slider-val" id="bgfx-fibers-val">0</span></div>
+          <div class="bg-grid-slider"><span>Crumples</span><input type="range" id="bgfx-wrinkles" min="0" max="100" value="0" oninput="updateSliderFill(this);onBgFxChange('wrinkles',this.value)"><span class="slider-val" id="bgfx-wrinkles-val">0</span></div>
+          <div class="bg-grid-slider"><span>Vignette</span><input type="range" id="bgfx-vignette" min="0" max="100" value="0" oninput="updateSliderFill(this);onBgFxChange('vignette',this.value)"><span class="slider-val" id="bgfx-vignette-val">0</span></div>
+          <div class="bg-grid-slider"><span>Stains</span><input type="range" id="bgfx-stains" min="0" max="100" value="0" oninput="updateSliderFill(this);onBgFxChange('stains',this.value)"><span class="slider-val" id="bgfx-stains-val">0</span></div>
+          <div class="bg-grid-hint">Texture laid over the background, whichever it is. Picking <b>Kraft</b> turns on a good starting mix.</div>
+        </div>
       </div>
     </div>
 
@@ -4863,6 +4874,7 @@ function saveProject(projectId = currentProjectId) {
         canvasH: state.canvasH,
         worldMul: state.worldMul,
         canvasBg: state.canvasBg,
+        bgFx: state.bgFx || null,
         _currentRatio: _currentRatio,
         _currentRes: _currentRes,
         
@@ -5002,6 +5014,7 @@ function loadProject(projectId) {
       state.canvasH = savedState.canvasH || 720;
       state.worldMul = savedState.worldMul || 1;
       state.canvasBg = savedState.canvasBg || { type: 'solid', val: '#ffffff' };
+      state.bgFx = savedState.bgFx ? { ...savedState.bgFx } : null;
       
       // Restore animation and drawing settings
       state.animStyle = savedState.animStyle || 'chunkjump';
@@ -5506,6 +5519,7 @@ function _serializeState() {
     canvasH: state.canvasH,
     worldMul: state.worldMul,
     canvasBg: JSON.parse(JSON.stringify(state.canvasBg || { type:'solid', val:'#ffffff' })),
+    bgFx: state.bgFx ? JSON.parse(JSON.stringify(state.bgFx)) : null,
     _currentRatio,
     _currentRes,
     animStyle: state.animStyle,
@@ -5624,6 +5638,7 @@ function _applySnapshot(snap, label) {
   state.canvasH          = snap.canvasH || 720;
   state.worldMul         = snap.worldMul || 1;
   state.canvasBg         = JSON.parse(JSON.stringify(snap.canvasBg || { type:'solid', val:'#ffffff' }));
+  state.bgFx             = snap.bgFx ? { ...snap.bgFx } : null;
   state.animStyle        = snap.animStyle || 'chunkjump';
   state.hand             = snap.hand || 'custom1';
   state.zigzag           = snap.zigzag !== undefined ? snap.zigzag : true;
@@ -6459,12 +6474,10 @@ const BG_GRADIENTS = {
     for(let x=0;x<state.canvasW;x+=20){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,state.canvasH);ctx.stroke();}
     for(let y=0;y<state.canvasH;y+=20){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(state.canvasW,y);ctx.stroke();}
   },
-  kraft: ctx => {
-    ctx.fillStyle='#c8973a'; ctx.fillRect(0,0,state.canvasW,state.canvasH);
-    ctx.strokeStyle='rgba(196,151,58,0.25)'; ctx.lineWidth=1;
-    for(let i=-state.canvasH;i<state.canvasW+state.canvasH;i+=6){
-      ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i+state.canvasH,state.canvasH);ctx.stroke();
-    }
+  kraft: ctx => {                                // plain kraft colour; the texture comes from the Paper effects below
+    const g=ctx.createRadialGradient(state.canvasW*.45,state.canvasH*.4,0,state.canvasW*.5,state.canvasH*.5,state.canvasW*.75);
+    g.addColorStop(0,'#d2a96c');g.addColorStop(1,'#bf9456');
+    ctx.fillStyle=g;ctx.fillRect(0,0,state.canvasW,state.canvasH);
   },
   dark: ctx => { ctx.fillStyle='#0f0f11'; ctx.fillRect(0,0,state.canvasW,state.canvasH); },
   linen: ctx => {
@@ -6493,12 +6506,95 @@ function fillBg(c) {
   } else {
     c.fillStyle='#fff'; c.fillRect(0,0,state.canvasW,state.canvasH);
   }
+  if (_bgFxAny(state.bgFx)) c.drawImage(bgFxOverlay(), 0, 0);     // paper effects: texture, creases, vignette, stains
   // Always composite completed layers — this ensures edgeCanvas/revealCanvas
   // intermediates also carry previous layers when blitted to ctx
   if (state.bgCanvas) {
     c.drawImage(state.bgCanvas, 0, 0);
   }
 }
+
+// ── Paper effects for the canvas background ───────────────────────────────────────────────────────────────
+// A transparent overlay (dark / light speckles, fibres, crumple shading, vignette, stains) laid over whatever the
+// background is. It is drawn once per setting / size into an offscreen canvas and just blitted every frame.
+// state.bgFx = { grain, fibers, wrinkles, vignette, stains: 0..100, seed }
+const BGFX_KEYS = ['grain', 'fibers', 'wrinkles', 'vignette', 'stains'];
+const BGFX_KRAFT = { grain: 45, fibers: 55, wrinkles: 30, vignette: 35, stains: 20 };   // what picking "Kraft" switches on
+const _bgFxAny = fx => !!fx && BGFX_KEYS.some(k => fx[k] > 0);
+function _bgFxRng(seed) { let a = (seed >>> 0) || 1; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+let _bgFxCache = null;
+function bgFxOverlay() {
+  const fx = state.bgFx, W = state.canvasW, H = state.canvasH;
+  const key = W + 'x' + H + '|' + BGFX_KEYS.map(k => fx[k] || 0).join(',') + '|' + (fx.seed || 1);
+  if (_bgFxCache && _bgFxCache.key === key) return _bgFxCache.cv;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'), R = _bgFxRng(fx.seed || 1), k = W / 1280, A = n => Math.max(0, Math.min(100, fx[n] || 0)) / 100;
+  // stains / ageing: soft brown blotches and a couple of faint rings
+  if (A('stains') > 0) {
+    const a = A('stains'), n = 6 + Math.round(a * 12);
+    for (let i = 0; i < n; i++) {
+      const x = R() * W, y = R() * H, r = (40 + R() * 150) * k, gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(120,72,24,${(0.04 + R() * 0.09) * a})`); gr.addColorStop(.7, `rgba(120,72,24,${0.03 * a})`); gr.addColorStop(1, 'rgba(120,72,24,0)');
+      g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    for (let i = 0; i < 1 + Math.round(a * 2); i++) { g.strokeStyle = `rgba(110,64,20,${0.10 * a})`; g.lineWidth = (2 + R() * 3) * k; g.beginPath(); g.arc(R() * W, R() * H, (22 + R() * 40) * k, 0, 7); g.stroke(); }
+  }
+  // crumpled paper: low-poly light and shade on a jittered grid, with a crease along some of the edges
+  if (A('wrinkles') > 0) {
+    const a = A('wrinkles'), cell = 150 * k, cols = Math.ceil(W / cell) + 1, rows = Math.ceil(H / cell) + 1, P = [];
+    for (let j = 0; j <= rows; j++) { P.push([]); for (let i = 0; i <= cols; i++) P[j].push([i * cell + (R() - .5) * cell * .7, j * cell + (R() - .5) * cell * .7]); }
+    const tris = [];
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { const p = P[j][i], q = P[j][i + 1], r = P[j + 1][i], s = P[j + 1][i + 1]; tris.push([p, q, r], [q, s, r]); }
+    tris.forEach(t => { const light = R() > .5; g.fillStyle = light ? `rgba(255,248,230,${R() * 0.10 * a})` : `rgba(40,22,6,${R() * 0.10 * a})`; g.beginPath(); g.moveTo(...t[0]); g.lineTo(...t[1]); g.lineTo(...t[2]); g.closePath(); g.fill(); });
+    g.lineCap = 'round';
+    tris.forEach(t => { if (R() > .45) return; const [u, v] = R() > .5 ? [t[0], t[1]] : [t[1], t[2]];
+      g.strokeStyle = `rgba(40,22,6,${(0.07 + R() * 0.10) * a})`; g.lineWidth = (1 + R() * 1.4) * k; g.beginPath(); g.moveTo(...u); g.lineTo(...v); g.stroke();
+      g.strokeStyle = `rgba(255,248,230,${(0.10 + R() * 0.12) * a})`; g.lineWidth = k; g.beginPath(); g.moveTo(u[0] + k * 1.4, u[1] + k * 1.4); g.lineTo(v[0] + k * 1.4, v[1] + k * 1.4); g.stroke(); });
+  }
+  // fibres: many short, slightly curved hairs, dark and light
+  if (A('fibers') > 0) {
+    const a = A('fibers'), n = Math.round(5200 * a * (W * H) / 921600);
+    g.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      const x = R() * W, y = R() * H, ang = (R() - .5) * 2.4 + (R() > .5 ? 0 : Math.PI), len = (6 + R() * 34) * k, bend = (R() - .5) * len * .6, dark = R() > .42;
+      g.strokeStyle = dark ? `rgba(70,42,14,${(0.05 + R() * 0.16) * a})` : `rgba(255,244,218,${(0.08 + R() * 0.2) * a})`;
+      g.lineWidth = (0.5 + R() * 1.0) * k; g.beginPath(); g.moveTo(x, y);
+      g.quadraticCurveTo(x + Math.cos(ang) * len / 2 - Math.sin(ang) * bend, y + Math.sin(ang) * len / 2 + Math.cos(ang) * bend, x + Math.cos(ang) * len, y + Math.sin(ang) * len); g.stroke();
+    }
+  }
+  // fine grain: per-pixel specks at half resolution (4x cheaper), scaled up so the grain is ~2 px
+  if (A('grain') > 0) {
+    const a = A('grain'), gw = Math.ceil(W / 2), gh = Math.ceil(H / 2), gc = document.createElement('canvas'); gc.width = gw; gc.height = gh;
+    const gg = gc.getContext('2d'), id = gg.createImageData(gw, gh), d = id.data;
+    for (let i = 0; i < gw * gh; i++) {
+      const v = R() * 2 - 1, o = i * 4;
+      if (v < 0) { d[o] = 60; d[o + 1] = 38; d[o + 2] = 16; d[o + 3] = Math.round(-v * 62 * a); } else { d[o] = 255; d[o + 1] = 245; d[o + 2] = 226; d[o + 3] = Math.round(v * 50 * a); }
+    }
+    gg.putImageData(id, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(gc, 0, 0, W, H);
+  }
+  // vignette: edges and corners darken, like paper that has been handled
+  if (A('vignette') > 0) {
+    const a = A('vignette'), r = Math.hypot(W, H) / 2, gr = g.createRadialGradient(W / 2, H / 2, r * .42, W / 2, H / 2, r);
+    gr.addColorStop(0, 'rgba(40,22,6,0)'); gr.addColorStop(1, `rgba(40,22,6,${0.62 * a})`);
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  }
+  _bgFxCache = { key, cv };
+  return cv;
+}
+// Panel controls
+function syncBgFxUI() {
+  const fx = state.bgFx || {};
+  BGFX_KEYS.forEach(k => { const el = document.getElementById('bgfx-' + k), v = document.getElementById('bgfx-' + k + '-val'); if (el) { el.value = fx[k] || 0; updateSliderFill(el); } if (v) v.textContent = fx[k] || 0; });
+}
+let _bgFxUndoTimer = null;
+function onBgFxChange(key, val) {
+  if (!_bgFxUndoTimer) pushUndoSnapshot();                          // one undo step per burst of changes
+  clearTimeout(_bgFxUndoTimer); _bgFxUndoTimer = setTimeout(() => { _bgFxUndoTimer = null; }, 600);
+  state.bgFx = state.bgFx || { grain: 0, fibers: 0, wrinkles: 0, vignette: 0, stains: 0, seed: 1 };
+  state.bgFx[key] = +val; syncBgFxUI(); redrawWithBg(); scheduleAutoSave();
+}
+function bgFxShuffle() { pushUndoSnapshot(); state.bgFx = state.bgFx || { grain: 0, fibers: 0, wrinkles: 0, vignette: 0, stains: 0 }; state.bgFx.seed = 1 + Math.floor(Math.random() * 1e6); redrawWithBg(); scheduleAutoSave(); }
+function bgFxReset() { pushUndoSnapshot(); state.bgFx = null; syncBgFxUI(); redrawWithBg(); scheduleAutoSave(); }
 // Squared paper in the user's colors. Cell and line sizes are in 1280-px-wide video units, so the grid
 // looks the same at every resolution and world size.
 function drawGridBg(c, bg) {
@@ -10540,6 +10636,7 @@ function selectAnim(el) {
 }
 // Makes the Canvas Background panel match state.canvasBg (used after load, undo and every change).
 function syncBgUI() {
+  syncBgFxUI();
   const bg = state.canvasBg || { type: 'solid', val: 'white' };
   document.querySelectorAll('.bg-pill, .bg-preset').forEach(p => p.classList.remove('active'));
   const box = document.getElementById('bg-grid-box'); if (box) box.classList.toggle('active', bg.type === 'grid');
@@ -10596,6 +10693,7 @@ function selectBgPreset(el, type, val) {
   } else {
     // el is null when called from an undo/restore; keep the restored key then.
     state.canvasBg = { type:'gradient', val, key: el ? el.dataset.bgKey : state.canvasBg?.key };
+    if (el && state.canvasBg.key === 'kraft' && !_bgFxAny(state.bgFx)) state.bgFx = { ...BGFX_KRAFT, seed: (state.bgFx && state.bgFx.seed) || 7 };   // kraft paper looks like paper only with its texture
   }
   syncBgUI();
   fitCanvas();
