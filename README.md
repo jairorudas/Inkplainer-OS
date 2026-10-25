@@ -16,6 +16,7 @@ Turn images and text into hand-drawn explainer videos — no sign-up, no waterma
 
 - **Multiple animation styles** — Slide In, Chunk Jump, Scanner, Contour, Outline Chunks, plus 7 subject-aware Specialized styles (Human, Animal, Portrait, Vehicle, Building, Landscape, Spiral)
 - **Advanced drawing control** — 5 stroke styles, 4 outline detection algorithms, 3 coloring styles, and 6 image reveal animations
+- **Paper effects for the background** — grain, fibres, crumples, vignette and stains, laid over any canvas background; picking *Kraft* switches on a ready-made kraft-paper look. Saved with the project and included in the exported video
 - **Layer system** — stack images and text layers, set animation order, animate them in sequence or in parallel
 - **Rotate and resize freely** — rotate any image (knob on the canvas or a degrees field, Shift for 15° steps); a *Keep proportions* switch per image decides whether resizing keeps its shape or stretches it
 - **animate.css effects** — give an image one of the 97 animate.css effects (tada, pulse, bounce, fade/zoom/slide/flip in and out…); it plays after the image appears, once, a number of times, or until the video ends; the *out* effects remove the image
