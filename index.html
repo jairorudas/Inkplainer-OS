@@ -4778,8 +4778,8 @@ input[type="number"]:focus { border-color: var(--accent); }
         <label style="width:auto;margin:0;font-size:12px;color:var(--text);display:flex;gap:4px;align-items:center"><input type="checkbox" id="ar-flip" onchange="arRender()"> Flip</label>
       </div>
       <div class="r2-row" id="ar-stroke-row" style="display:none">
-        <span class="r2-hint" style="margin:0">Thickness</span><input type="range" id="ar-width" style="flex:1;min-width:120px;max-width:220px" oninput="arSetWidth(this.value)"><span class="r2-hint" id="ar-width-val" style="margin:0;width:24px"></span>
-        <span class="r2-hint" style="margin:0 0 0 10px">Pen</span>
+        <span class="r2-hint" id="ar-width-lbl" style="margin:0">Thickness</span><input type="range" id="ar-width" style="flex:1;min-width:120px;max-width:220px" oninput="arSetWidth(this.value)"><span class="r2-hint" id="ar-width-val" style="margin:0;width:24px"></span>
+        <span class="r2-hint" id="ar-pen-lbl" style="margin:0 0 0 10px">Pen</span>
         <label id="ar-sticker-lbl" style="width:auto;margin:0 0 0 10px;font-size:12px;color:var(--text);display:flex;gap:4px;align-items:center"><input type="checkbox" id="ar-sticker" onchange="arSetSticker(this.checked)"> Sticker</label>
         <select id="ar-pen" onchange="arSetPen(this.value)" style="padding:5px 8px;font:inherit;font-size:12px;border:1px solid var(--border-hi);border-radius:7px;background:var(--panel);color:var(--text)"></select>
       </div>
@@ -10905,8 +10905,10 @@ async function sfxAdd(id) {
 // ARROWS — SVG pack from assets/arrows (see tools/build-arrows.py); color / rotation are baked in before adding
 // ═══════════════════════════════════════════════════════════════════════════
 const AR = { sticker: {}, style: null, color: '#111111', sel: new Map(), loaded: false, width: { highlight: 34, underline: 7, circle: 6 }, pen: { highlight: 'chisel', underline: 'pen', circle: 'pen' } };
-const AR_STROKE_KINDS = ['highlight', 'underline', 'circle', 'box', 'brace', 'strike', 'mark', 'connector', 'bubble', 'band', 'number', 'accent'];
+const AR_STROKE_KINDS = ['highlight', 'underline', 'circle', 'box', 'brace', 'strike', 'mark', 'connector', 'bubble', 'band', 'number', 'accent', 'paper'];
 const arIsStroke = s => AR_STROKE_KINDS.includes(s);
+// paper tones (cream, kraft, pastel yellow / pink / mint / sky / lilac, white, dark card): the *cut paper* tab uses these
+const AR_PAPER_COLORS = ['#fff7e6', '#e8c9a0', '#fde68a', '#fbcfe8', '#bbf7d0', '#bfdbfe', '#ddd6fe', '#ffffff', '#374151'];
 const AR_COLORS = ['#111111', '#e11d48', '#f97316', '#eab308', '#16a34a', '#0ea5e9', '#2563eb', '#9333ea', '#ec4899'];
 function arDarken(hex) { return '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.substr(i, 2), 16) * .55).toString(16).padStart(2, '0')).join(''); }
 function arOpts() { return { color: AR.color, rot: +document.getElementById('ar-rot').value, flip: document.getElementById('ar-flip').checked }; }
@@ -10930,11 +10932,17 @@ function openArrowsModal() {
 }
 function closeArrowsModal() { document.getElementById('ar-modal').classList.remove('open'); }
 function arRenderColors() {
-  document.getElementById('ar-colors').innerHTML = AR_COLORS.map(c => `<button class="ar-sw${c === AR.color ? ' on' : ''}" style="background:${c}" onclick="arSetColor('${c}')" aria-label="${c}"></button>`).join('')
+  document.getElementById('ar-colors').innerHTML = (AR.style === 'paper' ? AR_PAPER_COLORS : AR_COLORS).map(c => `<button class="ar-sw${c === AR.color ? ' on' : ''}" style="background:${c}" onclick="arSetColor('${c}')" aria-label="${c}"></button>`).join('')
     + `<input type="color" value="${AR.color}" oninput="arSetColor(this.value)" title="Custom color">`;
 }
 function arSetColor(c) { AR.color = c; arRenderColors(); arRender(); }
-function arSetStyle(s) { AR.style = s; arRender(); }
+function arSetStyle(s) {
+  const was = AR.style; AR.style = s;
+  // entering / leaving the paper tab swaps the colour set; a colour that belongs to the other set is replaced by its first one
+  if (s === 'paper' && was !== 'paper' && !AR_PAPER_COLORS.includes(AR.color)) AR.color = AR_PAPER_COLORS[0];
+  if (s !== 'paper' && was === 'paper' && AR_PAPER_COLORS.includes(AR.color)) AR.color = AR_COLORS[0];
+  arRenderColors(); arRender();
+}
 function arStyles() { return [...Object.keys(window.ARROW_PACK), ...AR_STROKE_KINDS]; }
 function arLabel(st) { return arIsStroke(st) ? window.STROKES.kinds[st].label : st; }
 function arItems(st) { return arIsStroke(st) ? window.STROKES.kinds[st].variants : Object.keys(window.ARROW_PACK[st].items); }
@@ -10950,10 +10958,11 @@ function arRender() {
   if (stroke) {
     const k = window.STROKES.kinds[st], w = document.getElementById('ar-width');
     w.min = k.width[0]; w.max = k.width[1]; w.value = AR.width[st]; document.getElementById('ar-width-val').textContent = AR.width[st];
-    const on = !!AR.sticker[st] && st !== 'highlight';
-    document.getElementById('ar-sticker-lbl').style.display = st === 'highlight' ? 'none' : 'flex';
+    const on = !!AR.sticker[st] && st !== 'highlight' && !k.noSticker;
+    document.getElementById('ar-sticker-lbl').style.display = (st === 'highlight' || window.STROKES.kinds[st].noSticker) ? 'none' : 'flex';
     document.getElementById('ar-sticker').checked = on; document.getElementById('ar-pen').disabled = on;
-    document.getElementById('ar-pen').innerHTML = k.pens.map(p => `<option value="${p}"${p === AR.pen[st] ? ' selected' : ''}>${window.STROKES.pens[p].label}</option>`).join('');
+    document.getElementById('ar-pen').innerHTML = k.pens.map(p => `<option value="${p}"${p === AR.pen[st] ? ' selected' : ''}>${(k.penLabels && k.penLabels[p]) || window.STROKES.pens[p].label}</option>`).join('');
+    document.getElementById('ar-width-lbl').textContent = k.widthLabel || 'Thickness'; document.getElementById('ar-pen-lbl').textContent = k.penLabel || 'Pen';
   }
   const grid = document.getElementById('ar-grid');
   grid.innerHTML = arItems(st).map(n => {

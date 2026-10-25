@@ -78,7 +78,7 @@
     'circle-egg': { turns: 1.1,  drift: .08, tilt: -20, start: -140, dir: 1, squash: .88 },
     'circle-doodle': { turns: 3.05, drift: .16, tilt: 0, start: -100, dir: 1 },
   };
-  const dimsOf = (kind, variant) => GEN[kind] ? (GEN[kind][variant] || Object.values(GEN[kind])[0]).dims : kind === 'circle' && !(RINGS[variant] || {}).oval ? [200, 200] : [400, 100];
+  const dimsOf = (kind, variant) => kind === 'paper' ? (PAPER[variant] || PAPER.cut).dims : GEN[kind] ? (GEN[kind][variant] || Object.values(GEN[kind])[0]).dims : kind === 'circle' && !(RINGS[variant] || {}).oval ? [200, 200] : [400, 100];
 
 
   // ---- shape kinds: boxes, braces/brackets, strike-outs, emphasis marks, connectors ----
@@ -315,8 +315,93 @@
     return `<g transform="translate(0 4)" opacity=".22">${re('#000', border + 4)}</g>${re('#fff', border + 4)}${re(darken(color), 6)}${re(color, 0)}`;
   }
 
+
+  // ---- cut-paper backgrounds: sheets to write on top of (scissor cuts, torn edges, strips, notes, tape) ----
+  // Filled shapes, not strokes: shadow + (white fibres on torn edges) + paper colour + texture + edge line.
+  // `width` = roughness of the cut / tear, `pen` = paper texture, `color` = the paper.
+  const mix = (hex, to, k) => { const h = hex.replace('#', ''), t = to.replace('#', ''); return '#' + [0, 2, 4].map(i => Math.round(parseInt(h.substr(i, 2), 16) * (1 - k) + parseInt(t.substr(i, 2), 16) * k).toString(16).padStart(2, '0')).join(''); };
+  const polyStr = pts => pts.map(p => f(p[0]) + ',' + f(p[1])).join(' ');
+  const jpt = (r, amp) => (r() * 2 - 1) * amp;
+  const rotP = (pts, deg, cx, cy) => { const a = deg * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a); return pts.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * sn, cy + (x - cx) * sn + (y - cy) * c]); };
+  // a straight edge p0 -> p1 made ragged; `inward` pushes the coloured paper back from the white torn fibres
+  function tornEdge(p0, p1, amp, r, inward, rimW) {
+    const len = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), n = Math.max(4, Math.round(len / 7)), dx = (p1[0] - p0[0]) / len, dy = (p1[1] - p0[1]) / len;
+    const nx = -dy * inward, ny = dx * inward;                         // unit normal pointing into the sheet
+    const outer = [], inner = []; let v = 0, w = 0;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, x = p0[0] + (p1[0] - p0[0]) * t, y = p0[1] + (p1[1] - p0[1]) * t;
+      v = v * .55 + jpt(r, 1) * .45; w = w * .6 + jpt(r, 1) * .4;
+      const o = v * amp, k = rimW * (.55 + .45 * Math.abs(w)) + w * amp * .5;
+      outer.push([x + nx * o, y + ny * o]); inner.push([x + nx * (o + Math.max(1.5, k)), y + ny * (o + Math.max(1.5, k))]);
+    }
+    return { outer, inner };
+  }
+  const evenPoly = (cx, cy, rx, ry, n, amp, r) => Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2; return [cx + Math.cos(a) * (rx + jpt(r, amp)), cy + Math.sin(a) * (ry + jpt(r, amp))]; });
+  const M = 16;
+  const PAPER = {
+    cut: { dims: [400, 200], build: (W, H, R, r) => { const j = () => jpt(r, R * .5); return { sheets: [{ pts: [[M + j(), M + j()], [W - M - 40 + j(), M + j()], [W - M + j(), M + 34 + j()], [W - M + j(), H - M + j()], [M + 30 + j(), H - M + j()], [M + j(), H - M - 26 + j()]] }] }; } },
+    'cut-wide': { dims: [400, 120], build: (W, H, R, r) => { const j = () => jpt(r, R * .4); return { sheets: [{ pts: [[M + j(), M + 8 + j()], [W - M + j(), M + j()], [W - M - 10 + j(), H - M + j()], [M + 12 + j(), H - M - 6 + j()]] }] }; } },
+    strip: { dims: [400, 90], build: (W, H, R, r) => { const j = () => jpt(r, R * .3); return { sheets: [{ pts: [[M + 28 + j(), M + j()], [W - M + j(), M + j()], [W - M - 28 + j(), H - M + j()], [M + j(), H - M + j()]] }] }; } },
+    banner: { dims: [400, 140], build: (W, H, R, r) => { const j = () => jpt(r, R * .3); return { sheets: [{ pts: [[M + j(), M + j()], [W - M + j(), M + j()], [W - M - 36 + j(), H / 2 + j()], [W - M + j(), H - M + j()], [M + j(), H - M + j()], [M + 36 + j(), H / 2 + j()]] }] }; } },
+    ticket: { dims: [400, 140], build: (W, H, R, r) => {
+      const nr = 14, rr = 16, cy = H / 2, ptsR = [], ptsL = [];
+      for (let i = 0; i <= nr; i++) { const a = -Math.PI / 2 + Math.PI * i / nr; ptsR.push([W - M - Math.cos(a) * rr, cy + Math.sin(a) * rr]); ptsL.push([M + Math.cos(a) * rr, cy - Math.sin(a) * rr]); }
+      return { sheets: [{ pts: [[M, M], [W - M, M], [W - M, cy - rr], ...ptsR, [W - M, cy + rr], [W - M, H - M], [M, H - M], [M, cy + rr], ...ptsL, [M, cy - rr]].map(([x, y]) => [x + jpt(r, R * .15), y + jpt(r, R * .15)]) }] }; } },
+    note: { dims: [240, 240], build: (W, H, R, r) => { const j = () => jpt(r, R * .25), fold = 46; const a = [W - M, H - M - fold], b = [W - M - fold, H - M];
+      return { sheets: [{ pts: [[M + j(), M + j()], [W - M + j(), M + j()], [a[0] + j(), a[1]], [b[0], b[1] + j()], [M + j(), H - M + j()]], fold: [a, b, [W - M - fold, H - M - fold]] }] }; } },
+    'torn-bottom': { dims: [400, 200], build: (W, H, R, r) => { const amp = 2 + R * .8, e = tornEdge([W - M, H - M], [M, H - M], amp, r, -1, 5 + R * .25), t = M + jpt(r, 1.5);
+      return { sheets: [{ pts: [[M, t], [W - M, t], ...e.inner], rim: [[M - 1, t - 1], [W - M + 1, t - 1], ...e.outer] }] }; } },
+    'torn-top': { dims: [400, 200], build: (W, H, R, r) => { const amp = 2 + R * .8, e = tornEdge([M, M], [W - M, M], amp, r, 1, 5 + R * .25), b = H - M + jpt(r, 1.5);
+      return { sheets: [{ pts: [...e.inner, [W - M, b], [M, b]], rim: [...e.outer, [W - M + 1, b + 1], [M - 1, b + 1]] }] }; } },
+    'torn-all': { dims: [400, 220], build: (W, H, R, r) => { const amp = 2 + R * .7, rim = 4 + R * .2, T = tornEdge([M, M], [W - M, M], amp, r, 1, rim), Rr = tornEdge([W - M, M], [W - M, H - M], amp, r, 1, rim), B = tornEdge([W - M, H - M], [M, H - M], amp, r, 1, rim), L = tornEdge([M, H - M], [M, M], amp, r, 1, rim);
+      return { sheets: [{ pts: [...T.inner, ...Rr.inner, ...B.inner, ...L.inner], rim: [...T.outer, ...Rr.outer, ...B.outer, ...L.outer] }] }; } },
+    zigzag: { dims: [400, 160], build: (W, H, R, r) => { const step = 18, d = 7, n = Math.floor((W - 2 * M) / step), top = [], bot = [];
+      for (let i = 0; i <= n; i++) { const x = M + i * (W - 2 * M) / n; top.push([x, M + (i % 2 ? d : 0)]); bot.push([x, H - M - (i % 2 ? d : 0)]); }
+      return { sheets: [{ pts: [...top, ...bot.reverse()].map(([x, y]) => [x + jpt(r, R * .12), y + jpt(r, R * .12)]) }] }; } },
+    scrap: { dims: [300, 220], build: (W, H, R, r) => ({ sheets: [{ pts: evenPoly(W / 2, H / 2, W / 2 - M - 4, H / 2 - M - 4, 7, 6 + R * 1.2, r).map(([x, y]) => [x, y]) }] }) },
+    'circle-cut': { dims: [260, 260], build: (W, H, R, r) => ({ sheets: [{ pts: evenPoly(W / 2, H / 2, W / 2 - M - 4, H / 2 - M - 4, 16, 2 + R * .5, r) }] }) },
+    layered: { dims: [400, 220], build: (W, H, R, r) => { const j = () => jpt(r, R * .4), mk = (dx, dy, ins) => [[M + ins + dx + j(), M + ins + dy + j()], [W - M - ins + dx + j(), M + ins + dy + j()], [W - M - ins + dx + j(), H - M - ins + dy + j()], [M + ins + dx + j(), H - M - ins + dy + j()]];
+      return { sheets: [{ pts: rotP(mk(0, 6, 4), -3.5, W / 2, H / 2), tone: .14 }, { pts: rotP(mk(0, -4, 16), 1.8, W / 2, H / 2) }] }; } },
+    taped: { dims: [400, 200], build: (W, H, R, r) => { const j = () => jpt(r, R * .45), pts = [[M + 8 + j(), M + 12 + j()], [W - M - 8 + j(), M + 12 + j()], [W - M - 8 + j(), H - M + j()], [M + 8 + j(), H - M + j()]];
+      const tape = (cx, cy, deg) => rotP([[cx - 34, cy - 12], [cx + 34, cy - 12], [cx + 34, cy + 12], [cx - 34, cy + 12]], deg, cx, cy);
+      return { sheets: [{ pts }], tapes: [tape(M + 26, M + 14, -34), tape(W - M - 26, M + 14, 34)] }; } },
+  };
+  const PAPER_TEXTURES = { plain: 'Plain', grain: 'Fine grain', kraft: 'Kraft fibres', lined: 'Notebook lines', grid: 'Squared', dots: 'Dotted' };
+
+  function paperSVG(variant, o) {
+    const def = PAPER[variant] || PAPER.cut, [W, H] = def.dims, size = o.size || 400, color = o.color || '#fff7e6', tex = o.pen || 'plain';
+    const R = Math.max(0, Math.min(20, o.width == null ? 8 : o.width)), id = 'pp' + (++uid);
+    let seed = 7; for (const ch of variant) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const scene = def.build(W, H, R, rng(seed));
+    const edge = mix(color, '#000000', .28);
+    let defs = `<filter id="${id}sh" x="-10%" y="-10%" width="125%" height="135%"><feGaussianBlur stdDeviation="3.2"/></filter>`;
+    if (tex === 'grain') defs += `<filter id="${id}t" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3" seed="4"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .42 -.1"/></filter>`;
+    if (tex === 'kraft') defs += `<filter id="${id}t" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".022 .55" numOctaves="3" seed="9"/><feColorMatrix values="0 0 0 0 .25  0 0 0 0 .14  0 0 0 0 .05  0 0 0 .75 -.22"/></filter><filter id="${id}t2" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="2"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .35 -.1"/></filter>`;
+    if (tex === 'lined') defs += `<pattern id="${id}p" width="40" height="24" patternUnits="userSpaceOnUse" y="14"><line x1="0" y1="23" x2="40" y2="23" stroke="#7d98cf" stroke-opacity=".6" stroke-width="1.6"/></pattern>`;
+    if (tex === 'grid') defs += `<pattern id="${id}p" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#7d98cf" stroke-opacity=".5" stroke-width="1.2"/></pattern>`;
+    if (tex === 'dots') defs += `<pattern id="${id}p" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="11" cy="11" r="1.7" fill="#6b7280" fill-opacity=".55"/></pattern>`;
+    let body = '';
+    scene.sheets.forEach((sh, i) => {
+      const c = sh.tone ? mix(color, '#000000', sh.tone) : color, cp = `${id}c${i}`;
+      defs += `<clipPath id="${cp}"><polygon points="${polyStr(sh.pts)}"/></clipPath>`;
+      body += `<polygon points="${polyStr(sh.rim || sh.pts)}" transform="translate(3 6)" fill="#000" fill-opacity=".3" filter="url(#${id}sh)"/>`;
+      if (sh.rim) body += `<polygon points="${polyStr(sh.rim)}" fill="#fffdf6" stroke="${mix('#fffdf6', '#000000', .12)}" stroke-width=".8" stroke-linejoin="round"/>`;
+      body += `<polygon points="${polyStr(sh.pts)}" fill="${c}" stroke="${edge}" stroke-opacity=".5" stroke-width="1.1" stroke-linejoin="round"/>`;
+      const over = [];
+      if (tex === 'grain') over.push(`<rect width="${W}" height="${H}" filter="url(#${id}t)"/>`);
+      if (tex === 'kraft') over.push(`<rect width="${W}" height="${H}" filter="url(#${id}t)"/>`, `<rect width="${W}" height="${H}" filter="url(#${id}t2)"/>`);
+      if (tex === 'lined' || tex === 'grid' || tex === 'dots') over.push(`<rect width="${W}" height="${H}" fill="url(#${id}p)"/>`);
+      if (tex === 'lined') over.push(`<line x1="${W * .13}" y1="0" x2="${W * .13}" y2="${H}" stroke="#e07a7a" stroke-opacity=".7" stroke-width="1.6"/>`);
+      if (over.length) body += `<g clip-path="url(#${cp})">${over.join('')}</g>`;
+      if (sh.fold) body += `<polygon points="${polyStr(sh.fold)}" fill="${mix(c, '#000000', .16)}" stroke="${edge}" stroke-opacity=".5" stroke-width="1" stroke-linejoin="round"/>`;
+    });
+    (scene.tapes || []).forEach(t => { body += `<polygon points="${polyStr(t)}" fill="#f1e3a6" fill-opacity=".82" stroke="#c9b66a" stroke-opacity=".6" stroke-width="1"/>`; });
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${f(size * H / W)}" viewBox="0 0 ${W} ${H}"><defs>${defs}</defs>${body}</svg>`;
+  }
+
   function strokeSVG(kind, variant, o) {
     o = o || {};
+    if (kind === 'paper') return paperSVG(variant, o);
     const color = o.color || '#111111', size = o.size || 400;
     const isH = kind === 'highlight', isRing = kind === 'circle', isGen = !!GEN[kind];
     const sticker = !!o.sticker && !isH;
@@ -391,6 +476,7 @@
       strike:    { label: 'strike-out',     variants: Object.keys(GEN.strike),    pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 24, 6] },
       mark:      { label: 'marks',          variants: Object.keys(GEN.mark),      pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [3, 24, 8] },
       bubble:    { label: 'speech bubbles', variants: Object.keys(GEN.bubble),    pens: ['pen', 'felt', 'pencil', 'brush', 'chalk', 'crayon'], width: [2, 16, 5] },
+      paper:     { label: 'cut paper', variants: Object.keys(PAPER), pens: Object.keys(PAPER_TEXTURES), penLabels: PAPER_TEXTURES, widthLabel: 'Roughness', penLabel: 'Texture', noSticker: true, width: [0, 20, 8], color: '#fff7e6' },
       band:      { label: 'bands & cards', variants: Object.keys(GEN.band),   pens: ['brush', 'felt', 'chalk', 'crayon', 'pencil', 'pen'], width: [12, 48, 26] },
       number:    { label: 'numbers',        variants: Object.keys(GEN.number), pens: ['pen', 'felt', 'brush', 'pencil', 'chalk', 'crayon'], width: [3, 20, 8] },
       accent:    { label: 'accents',        variants: Object.keys(GEN.accent), pens: ['pen', 'felt', 'brush', 'pencil', 'chalk', 'crayon'], width: [2, 18, 6] },
