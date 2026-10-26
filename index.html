@@ -4415,7 +4415,88 @@ input[type="number"]:focus { border-color: var(--accent); }
       </button>
       </div>
 
-      <!-- Background section -->
+    </div>
+
+    <!-- TEXT PANEL -->
+    <div id="text-panel" style="display:none">
+
+      <!-- Click-to-place button (the actual action — placed first so it can't be missed) -->
+      <button id="tp-place-btn" class="tp-place-btn" style="margin-top:10px" onclick="activateTextPlacement()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        <span id="tp-place-btn-label">Click canvas to place text</span>
+      </button>
+
+      <!-- Font family -->
+      <div style="margin-top:12px">
+        <div class="tp-label">Font</div>
+        <div id="font-picker" style="display:flex;flex-direction:column;gap:4px;margin-top:5px;max-height:260px;overflow-y:auto;"></div>
+      </div>
+
+      <!-- Size + Weight + Italic row -->
+      <div style="margin-top:10px">
+        <div class="tp-label">Style</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:5px;">
+          <input type="number" id="tp-size" value="72" min="10" max="400" title="Font size"
+            style="width:58px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;font-size:12px;padding:6px 8px;outline:none;font-variant-numeric:tabular-nums;"
+            oninput="updateTextState()">
+          <span style="font-size:10px;color:var(--muted);flex-shrink:0;">px</span>
+          <button id="tp-bold" class="tp-style-btn" onclick="toggleTextStyle('bold')" title="Bold"><b>B</b></button>
+          <button id="tp-italic" class="tp-style-btn" onclick="toggleTextStyle('italic')" title="Italic"><i>I</i></button>
+          <div style="margin-left:auto;display:flex;gap:3px;">
+            <button class="tp-align-btn active" data-align="left"   onclick="setTextAlign('left')"   title="Align left">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+            </button>
+            <button class="tp-align-btn" data-align="center" onclick="setTextAlign('center')" title="Align center">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+            </button>
+            <button class="tp-align-btn" data-align="right"  onclick="setTextAlign('right')"  title="Align right">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line height + Letter spacing -->
+      <div style="margin-top:10px;display:flex;gap:10px;">
+        <div style="flex:1;min-width:0;">
+          <div class="tp-label">Line height</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-top:4px;">
+            <input type="range" id="tp-lineheight" min="0.8" max="2.5" step="0.05" value="1.3"
+              style="flex:1;min-width:0;accent-color:var(--accent);" oninput="updateTextState();document.getElementById('tp-lh-val').textContent=parseFloat(this.value).toFixed(2)">
+            <span id="tp-lh-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">1.30</span>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div class="tp-label">Spacing</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-top:4px;">
+            <input type="range" id="tp-spacing" min="-5" max="30" step="0.5" value="0"
+              style="flex:1;min-width:0;accent-color:var(--accent);" oninput="updateTextState();document.getElementById('tp-sp-val').textContent=parseFloat(this.value).toFixed(1)">
+            <span id="tp-sp-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">0.0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color -->
+      <div style="margin-top:10px">
+        <div class="tp-label">Color</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap;">
+          <div class="tp-swatch selected" style="background:#1a1a1a" data-color="#1a1a1a" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#ffffff;border-color:#ccc" data-color="#ffffff" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#2563eb" data-color="#2563eb" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#dc2626" data-color="#dc2626" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#16a34a" data-color="#16a34a" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#d97706" data-color="#d97706" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#7c3aed" data-color="#7c3aed" onclick="selectTextColor(this)"></div>
+          <div class="tp-swatch" style="background:#0891b2" data-color="#0891b2" onclick="selectTextColor(this)"></div>
+          <label class="tp-swatch tp-swatch-custom" title="Custom color" style="cursor:pointer;overflow:hidden;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            <input type="color" id="tp-custom-color" style="position:absolute;opacity:0;width:0;height:0;" oninput="onTextCustomColor(this.value)">
+          </label>
+        </div>
+      </div>
+
+    </div>
+      <!-- Background section (shown for both input modes) -->
       <div style="margin-top:14px">
         <div class="section-label">Canvas Background</div>
         <div class="bg-row">
@@ -4510,87 +4591,6 @@ input[type="number"]:focus { border-color: var(--accent); }
           <div class="bg-grid-hint">Texture laid over the background, whichever it is. Picking <b>Kraft</b> turns on a good starting mix.</div>
         </div>
       </div>
-    </div>
-
-    <!-- TEXT PANEL -->
-    <div id="text-panel" style="display:none">
-
-      <!-- Click-to-place button (the actual action — placed first so it can't be missed) -->
-      <button id="tp-place-btn" class="tp-place-btn" style="margin-top:10px" onclick="activateTextPlacement()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-        <span id="tp-place-btn-label">Click canvas to place text</span>
-      </button>
-
-      <!-- Font family -->
-      <div style="margin-top:12px">
-        <div class="tp-label">Font</div>
-        <div id="font-picker" style="display:flex;flex-direction:column;gap:4px;margin-top:5px;max-height:260px;overflow-y:auto;"></div>
-      </div>
-
-      <!-- Size + Weight + Italic row -->
-      <div style="margin-top:10px">
-        <div class="tp-label">Style</div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:5px;">
-          <input type="number" id="tp-size" value="72" min="10" max="400" title="Font size"
-            style="width:58px;background:var(--panel);border:1px solid var(--border-hi);border-radius:7px;color:var(--text);font-family:'Geist','DM Sans',sans-serif;font-size:12px;padding:6px 8px;outline:none;font-variant-numeric:tabular-nums;"
-            oninput="updateTextState()">
-          <span style="font-size:10px;color:var(--muted);flex-shrink:0;">px</span>
-          <button id="tp-bold" class="tp-style-btn" onclick="toggleTextStyle('bold')" title="Bold"><b>B</b></button>
-          <button id="tp-italic" class="tp-style-btn" onclick="toggleTextStyle('italic')" title="Italic"><i>I</i></button>
-          <div style="margin-left:auto;display:flex;gap:3px;">
-            <button class="tp-align-btn active" data-align="left"   onclick="setTextAlign('left')"   title="Align left">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
-            </button>
-            <button class="tp-align-btn" data-align="center" onclick="setTextAlign('center')" title="Align center">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-            </button>
-            <button class="tp-align-btn" data-align="right"  onclick="setTextAlign('right')"  title="Align right">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Line height + Letter spacing -->
-      <div style="margin-top:10px;display:flex;gap:10px;">
-        <div style="flex:1;min-width:0;">
-          <div class="tp-label">Line height</div>
-          <div style="display:flex;align-items:center;gap:5px;margin-top:4px;">
-            <input type="range" id="tp-lineheight" min="0.8" max="2.5" step="0.05" value="1.3"
-              style="flex:1;min-width:0;accent-color:var(--accent);" oninput="updateTextState();document.getElementById('tp-lh-val').textContent=parseFloat(this.value).toFixed(2)">
-            <span id="tp-lh-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">1.30</span>
-          </div>
-        </div>
-        <div style="flex:1;min-width:0;">
-          <div class="tp-label">Spacing</div>
-          <div style="display:flex;align-items:center;gap:5px;margin-top:4px;">
-            <input type="range" id="tp-spacing" min="-5" max="30" step="0.5" value="0"
-              style="flex:1;min-width:0;accent-color:var(--accent);" oninput="updateTextState();document.getElementById('tp-sp-val').textContent=parseFloat(this.value).toFixed(1)">
-            <span id="tp-sp-val" style="font-size:10px;color:var(--muted);min-width:28px;text-align:right;font-variant-numeric:tabular-nums;">0.0</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Color -->
-      <div style="margin-top:10px">
-        <div class="tp-label">Color</div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap;">
-          <div class="tp-swatch selected" style="background:#1a1a1a" data-color="#1a1a1a" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#ffffff;border-color:#ccc" data-color="#ffffff" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#2563eb" data-color="#2563eb" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#dc2626" data-color="#dc2626" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#16a34a" data-color="#16a34a" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#d97706" data-color="#d97706" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#7c3aed" data-color="#7c3aed" onclick="selectTextColor(this)"></div>
-          <div class="tp-swatch" style="background:#0891b2" data-color="#0891b2" onclick="selectTextColor(this)"></div>
-          <label class="tp-swatch tp-swatch-custom" title="Custom color" style="cursor:pointer;overflow:hidden;">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            <input type="color" id="tp-custom-color" style="position:absolute;opacity:0;width:0;height:0;" oninput="onTextCustomColor(this.value)">
-          </label>
-        </div>
-      </div>
-
-    </div>
   </div>
 
   <!-- Layer list -->
@@ -8133,7 +8133,7 @@ function rpInit() {
   rpMake('input', card.querySelector(':scope > .section-label'),
     () => [card.querySelector(':scope > .tab-group'), document.getElementById('rp-input-body'), document.getElementById('text-panel')]);
   rpMake('canvasbg', byText('.section-label', 'canvas background'),
-    () => [panel.querySelector('#image-panel .bg-row'), panel.querySelector('#image-panel .bg-color-row')]);
+    () => [panel.querySelector('.bg-row'), panel.querySelector('.bg-color-row')]);
   rpMake('grid', byText('.bg-section-label', 'grid background'), () => [document.getElementById('bg-grid-box')]);
   rpMake('presets', byText('.bg-section-label', 'presets'), () => [document.getElementById('bg-presets')]);
   rpMake('layers', panel.querySelector('.layer-panel-header'),
@@ -12010,32 +12010,32 @@ function initFontPicker() {
 }
 
 function selectFont(family) {
-  _ts.font = family;
+  _ts.font = family; _tsTouch('font');
   document.querySelectorAll('.font-card').forEach(c => c.classList.toggle('selected', c.dataset.family === family));
   updateTextOverlayStyle();
 }
 
 function toggleTextStyle(which) {
-  _ts[which] = !_ts[which];
+  _ts[which] = !_ts[which]; _tsTouch(which);
   document.getElementById('tp-' + which).classList.toggle('active', _ts[which]);
   updateTextOverlayStyle();
 }
 
 function setTextAlign(align) {
-  _ts.align = align;
+  _ts.align = align; _tsTouch('align');
   document.querySelectorAll('.tp-align-btn').forEach(b => b.classList.toggle('active', b.dataset.align === align));
   updateTextOverlayStyle();
 }
 
 function selectTextColor(el) {
-  _ts.color = el.dataset.color;
+  _ts.color = el.dataset.color; _tsTouch('color');
   document.querySelectorAll('.tp-swatch').forEach(s => s.classList.remove('selected'));
   el.classList.add('selected');
   updateTextOverlayStyle();
 }
 
 function onTextCustomColor(val) {
-  _ts.color = val;
+  _ts.color = val; _tsTouch('color');
   document.querySelectorAll('.tp-swatch').forEach(s => s.classList.remove('selected'));
   updateTextOverlayStyle();
 }
@@ -12044,6 +12044,7 @@ function updateTextState() {
   _ts.size       = Math.max(10, parseInt(document.getElementById('tp-size').value) || 72);
   _ts.lineHeight = parseFloat(document.getElementById('tp-lineheight').value) || 1.3;
   _ts.spacing    = parseFloat(document.getElementById('tp-spacing').value) || 0;
+  _tsTouch('size', 'lineHeight', 'spacing');
   updateTextOverlayStyle();
 }
 
@@ -12159,7 +12160,27 @@ function _positionTextOverlay(cx, cy) {
   frm.style.minHeight = (minH + 6) + 'px';
 }
 
+// Changing a style control while a text layer is selected (and no editor is open) restyles that layer:
+// only the touched properties change, the rest stay as the layer had them.
+const _tsDirty = new Set(); let _tsRestyleTimer = null;
+function _tsTouch(...keys) { keys.forEach(k => _tsDirty.add(k)); }
+function _restyleSelectedText() {
+  clearTimeout(_tsRestyleTimer);
+  _tsRestyleTimer = setTimeout(() => {
+    const keys = [..._tsDirty]; _tsDirty.clear();
+    if (!keys.length || _ts.active || _ts.placing) return;
+    const L = state.layers.find(l => l && l.id === state.selectedLayerId);
+    if (!L || L.kind !== 'text' || !L._textContent) return;
+    const want = {}; keys.forEach(k => want[k] = _ts[k]);
+    Object.assign(_ts, { font: L._textFont, size: L._textSize, bold: !!L._textBold, italic: !!L._textItalic, align: L._textAlign || 'left',
+      color: L._textColor, lineHeight: L._textLineHeight || 1.3, spacing: L._textSpacing || 0 }, want);
+    _ts.editingId = L.id; _ts.canvasX = L.x; _ts.canvasY = L.y;
+    _commitTextLayer(L._textContent);
+    _ts.editingId = null;
+  }, 120);
+}
 function updateTextOverlayStyle() {
+  if (!_ts.active && _tsDirty.size) _restyleSelectedText();
   const wrapper = document.getElementById('canvas-wrapper');
   const rect    = wrapper.getBoundingClientRect();
   const scaleY  = rect.height / state.canvasH;
