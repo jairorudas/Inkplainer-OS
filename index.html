@@ -9565,6 +9565,68 @@ function hitTestLayer(px, py) {
 const wrapper = document.getElementById('canvas-wrapper');
 selectCanvas.style.pointerEvents = 'auto';
 
+// ── Stacking order from the canvas: bring forward / send backward ─────────────────────────────────────────────
+// What is on top follows the order the layers appear in the animation (the same order as the list), so moving a
+// layer up or down here moves it in that order too. A layer inside a group moves among its group's layers; a loose
+// layer moves among the loose layers and the groups (a group stays together).
+function _stackSeq() {
+  const seq = getAnimOrder().map(l => l.id);
+  state.layers.forEach(l => { if (!seq.includes(l.id)) seq.push(l.id); });          // hidden layers keep their place at the end
+  return seq;
+}
+function moveLayerStack(id, how) {                       // how: 'front' | 'forward' | 'backward' | 'back'
+  const L = getLayerById(id); if (!L || state.playing) return false;
+  const seq = _stackSeq(), rows = [];
+  seq.forEach(i => {
+    const g = getLayerById(i).groupId;
+    const row = g != null ? rows.find(r => r.g === g) : null;
+    if (row) row.ids.push(i); else rows.push({ g: g != null ? g : null, ids: [i] });
+  });
+  const move = (arr, idx) => {
+    const to = how === 'front' ? arr.length - 1 : how === 'back' ? 0 : how === 'forward' ? Math.min(arr.length - 1, idx + 1) : Math.max(0, idx - 1);
+    if (to === idx) return false; arr.splice(to, 0, arr.splice(idx, 1)[0]); return true;
+  };
+  let changed;
+  if (L.groupId != null) { const row = rows.find(r => r.g === L.groupId); changed = move(row.ids, row.ids.indexOf(id)); }
+  else changed = move(rows, rows.findIndex(r => r.g === null && r.ids[0] === id));
+  if (!changed) { showToast(how === 'front' || how === 'forward' ? 'Already on top' : 'Already at the back'); return false; }
+  const after = rows.flatMap(r => r.ids);
+  pushUndoSnapshot();
+  _renumberLayers(after, new Set([id]));
+  state.layers.sort((a, b) => after.indexOf(a.id) - after.indexOf(b.id));          // the static canvas follows the same order
+  renderLayerList(); redrawLayersOnCanvas(); drawSelectionHandles(); scheduleAutoSave();
+  return true;
+}
+const _STACK_ITEMS = [['front', 'Bring to front', 'Ctrl+Shift+]'], ['forward', 'Bring forward', 'Ctrl+]'], ['backward', 'Send backward', 'Ctrl+['], ['back', 'Send to back', 'Ctrl+Shift+[']];
+function _closeStackMenu() { document.getElementById('stack-menu')?.remove(); }
+function openStackMenu(clientX, clientY, id) {
+  _closeStackMenu();
+  const m = document.createElement('div'); m.id = 'stack-menu';
+  m.style.cssText = `position:fixed;z-index:9999;left:${clientX}px;top:${clientY}px;min-width:190px;padding:4px;background:var(--panel);border:1px solid var(--border-hi);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;color:var(--text)`;
+  m.innerHTML = _STACK_ITEMS.map(([k, label, key]) => `<div data-how="${k}" style="display:flex;justify-content:space-between;gap:18px;padding:6px 10px;border-radius:5px;cursor:pointer"><span>${label}</span><span style="color:var(--muted)">${key}</span></div>`).join('');
+  m.querySelectorAll('[data-how]').forEach(el => {
+    el.onmouseenter = () => el.style.background = 'var(--surface-2)'; el.onmouseleave = () => el.style.background = '';
+    el.onclick = () => { _closeStackMenu(); moveLayerStack(id, el.dataset.how); };
+  });
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect(); if (r.right > innerWidth) m.style.left = (innerWidth - r.width - 8) + 'px'; if (r.bottom > innerHeight) m.style.top = (innerHeight - r.height - 8) + 'px';
+}
+selectCanvas.addEventListener('contextmenu', e => {
+  if (state.playing) return;
+  const {x, y} = toCanvasCoords(e), hit = hitTestLayer(x, y);
+  if (!hit) { _closeStackMenu(); return; }
+  e.preventDefault(); selectLayer(hit.id); openStackMenu(e.clientX, e.clientY, hit.id);
+});
+document.addEventListener('mousedown', e => { if (!e.target.closest('#stack-menu')) _closeStackMenu(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') _closeStackMenu();
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+  const dir = e.code === 'BracketRight' ? 1 : e.code === 'BracketLeft' ? -1 : 0;
+  if (!dir || state.selectedLayerId == null) return;
+  e.preventDefault(); moveLayerStack(state.selectedLayerId, dir > 0 ? (e.shiftKey ? 'front' : 'forward') : (e.shiftKey ? 'back' : 'backward'));
+});
+
+
 selectCanvas.addEventListener('mousedown', e => {
   if (state.playing) return;
   if (e.button === 1 || e.altKey) { e.preventDefault(); startViewPan(e); return; }
