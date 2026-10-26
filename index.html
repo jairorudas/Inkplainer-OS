@@ -3726,6 +3726,23 @@ input[type="number"]:focus { border-color: var(--accent); }
             <button class="toggle" id="slide-hand-toggle" onclick="toggleSlideHand()"></button>
           </div>
           <div style="font-size:9px;color:var(--muted);line-height:1.4;margin:6px 0">The Mickey hand drags the image in. It is the only hand made for Slide In; the Hand Style in the bottom bar only drives the drawing styles.</div>
+          <div class="section-sublabel">Path</div>
+          <div class="anim-grid anim-grid-3" id="slide-path-grid">
+            <div class="anim-opt selected" data-slide-path="straight" onclick="setSlidePath(this)">Straight</div>
+            <div class="anim-opt" data-slide-path="swing" onclick="setSlidePath(this)" title="Sharp zigzag from side to side">Zigzag swing</div>
+            <div class="anim-opt" data-slide-path="wave" onclick="setSlidePath(this)" title="Rises and falls in waves">Wave</div>
+            <div class="anim-opt" data-slide-path="z" onclick="setSlidePath(this)" title="Sudden jumps from side to side with a short stop between">Z</div>
+          </div>
+          <div class="section-sublabel">Swing width</div>
+          <div class="slider-row">
+            <input type="range" id="slide-swing-slider" min="2" max="40" step="1" value="12" oninput="setSlideSwing('slideSwing',this.value)">
+            <span class="slider-val" id="slide-swing-val">12%</span>
+          </div>
+          <div class="section-sublabel">Number of swings</div>
+          <div class="slider-row">
+            <input type="range" id="slide-swings-slider" min="1" max="10" step="1" value="4" oninput="setSlideSwing('slideSwings',this.value)">
+            <span class="slider-val" id="slide-swings-val">4</span>
+          </div>
           <div class="section-sublabel">Opacity transition</div>
           <div class="anim-grid anim-grid-3" id="slide-transition-grid">
             <div class="anim-opt selected" data-slide-transition="linear" onclick="setSlideTransition(this)">Linear</div>
@@ -4934,6 +4951,7 @@ function saveProject(projectId = currentProjectId) {
           slideDirection: layer.slideDirection,
           slideDurationMs: layer.slideDurationMs,
           slideTransition: layer.slideTransition,
+          slidePath: layer.slidePath || 'straight', slideSwing: layer.slideSwing ?? 12, slideSwings: layer.slideSwings ?? 4,
           slideHand: !!layer.slideHand,
           slideHandStyle: layer.slideHandStyle || 'auto',
           cameraMode: layer.cameraMode,
@@ -5111,6 +5129,7 @@ function loadProject(projectId) {
                 slideDirection: layerData.slideDirection || 'left',
                 slideDurationMs: layerData.slideDurationMs !== undefined ? layerData.slideDurationMs : 1200,
                 slideTransition: layerData.slideTransition || 'linear',
+                slidePath: layerData.slidePath || 'straight', slideSwing: layerData.slideSwing ?? 12, slideSwings: layerData.slideSwings ?? 4,
                 slideHand: !!layerData.slideHand,
                 slideHandStyle: layerData.slideHandStyle || 'auto',
                 cameraMode: layerData.cameraMode || 'none',
@@ -5593,6 +5612,7 @@ function _serializeState() {
       slideDirection: layer.slideDirection,
       slideDurationMs: layer.slideDurationMs,
       slideTransition: layer.slideTransition,
+      slidePath: layer.slidePath || 'straight', slideSwing: layer.slideSwing ?? 12, slideSwings: layer.slideSwings ?? 4,
       slideHand: !!layer.slideHand,
       slideHandStyle: layer.slideHandStyle || 'auto',
       cameraMode: layer.cameraMode,
@@ -5754,6 +5774,7 @@ function _applySnapshot(snap, label) {
           slideDirection: ld.slideDirection || 'left',
           slideDurationMs: ld.slideDurationMs !== undefined ? ld.slideDurationMs : 1200,
           slideTransition: ld.slideTransition || 'linear',
+          slidePath: ld.slidePath || 'straight', slideSwing: ld.slideSwing ?? 12, slideSwings: ld.slideSwings ?? 4,
           slideHand: !!ld.slideHand,
           slideHandStyle: ld.slideHandStyle || 'auto',
           cameraMode: ld.cameraMode || 'none',
@@ -6204,6 +6225,9 @@ window.addEventListener('load', () => {
         el.classList.toggle('selected', el.dataset.slideDirection === (layer.slideDirection || 'left')));
       document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
         el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
+      document.querySelectorAll('#slide-path-grid [data-slide-path]').forEach(el =>
+        el.classList.toggle('selected', el.dataset.slidePath === (layer.slidePath || 'straight')));
+      syncSlideSwingUI(layer);
       document.getElementById('slide-hand-toggle')?.classList.toggle('on', !!layer.slideHand);
   document.querySelectorAll('#slide-hand-grid [data-slide-hand]').forEach(el => el.classList.toggle('selected', el.dataset.slideHand === (layer.slideHandStyle || 'auto')));
 
@@ -7247,6 +7271,7 @@ function addLayer(img, name) {
     slideDirection: 'left',
     slideDurationMs: 1200,
     slideTransition: 'linear',
+    slidePath: 'straight', slideSwing: 12, slideSwings: 4,
     slideHand: false,
     slideHandStyle: 'auto',
     cameraMode: 'none',
@@ -7370,6 +7395,9 @@ function syncSidebarToLayer(id) {
     el.classList.toggle('selected', el.dataset.slideDirection === (layer.slideDirection || 'left')));
   document.querySelectorAll('#slide-transition-grid [data-slide-transition]').forEach(el =>
     el.classList.toggle('selected', el.dataset.slideTransition === (layer.slideTransition || 'linear')));
+  document.querySelectorAll('#slide-path-grid [data-slide-path]').forEach(el =>
+    el.classList.toggle('selected', el.dataset.slidePath === (layer.slidePath || 'straight')));
+  syncSlideSwingUI(layer);
   document.getElementById('slide-hand-toggle')?.classList.toggle('on', !!layer.slideHand);
   document.querySelectorAll('#slide-hand-grid [data-slide-hand]').forEach(el => el.classList.toggle('selected', el.dataset.slideHand === (layer.slideHandStyle || 'auto')));
   // BUG FIX: sync zigzag toggle to per-layer state
@@ -7435,6 +7463,26 @@ function setSlideHandStyle(el) {
   pushUndoSnapshot(); clearActivePreset();
   layer.slideHandStyle = el.dataset.slideHand;
   document.querySelectorAll('#slide-hand-grid [data-slide-hand]').forEach(x => x.classList.toggle('selected', x === el));
+  scheduleAutoSave();
+}
+function syncSlideSwingUI(layer) {
+  const w = layer.slideSwing ?? 12, n = layer.slideSwings ?? 4;
+  const a = document.getElementById('slide-swing-slider'), b = document.getElementById('slide-swings-slider'); if (!a || !b) return;
+  a.value = w; b.value = n; document.getElementById('slide-swing-val').textContent = w + '%'; document.getElementById('slide-swings-val').textContent = n;
+  updateSliderFill(a); updateSliderFill(b);
+}
+function setSlideSwing(key, v) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  if (!layer._slideSwingUndoPending) { pushUndoSnapshot(); layer._slideSwingUndoPending = true; }
+  layer[key] = Number(v); syncSlideSwingUI(layer); scheduleAutoSave();
+  clearTimeout(layer._slideSwingUndoTimer);
+  layer._slideSwingUndoTimer = setTimeout(() => { delete layer._slideSwingUndoPending; delete layer._slideSwingUndoTimer; }, 300);
+}
+function setSlidePath(el) {
+  const layer = getSelectedLayer(); if (!layer) return;
+  pushUndoSnapshot(); clearActivePreset();
+  layer.slidePath = el.dataset.slidePath;
+  document.querySelectorAll('#slide-path-grid [data-slide-path]').forEach(x => x.classList.toggle('selected', x === el));
   scheduleAutoSave();
 }
 function setSlideTransition(el) {
@@ -12323,6 +12371,7 @@ function _commitTextLayer(text) {
       slideDirection: _oldLayer ? (_oldLayer.slideDirection || 'left') : 'left',
       slideDurationMs: _oldLayer ? (_oldLayer.slideDurationMs ?? 1200) : 1200,
       slideTransition: _oldLayer ? (_oldLayer.slideTransition || 'linear') : 'linear',
+      slidePath: _oldLayer ? (_oldLayer.slidePath || 'straight') : 'straight', slideSwing: _oldLayer ? (_oldLayer.slideSwing ?? 12) : 12, slideSwings: _oldLayer ? (_oldLayer.slideSwings ?? 4) : 4,
       slideHand: _oldLayer ? !!_oldLayer.slideHand : false,
       slideHandStyle: _oldLayer ? (_oldLayer.slideHandStyle || 'auto') : 'auto',
       camFrame: _oldLayer && _oldLayer.camFrame ? { ..._oldLayer.camFrame } : null,
@@ -14704,6 +14753,7 @@ function applySlices() {
     slideDirection:     layer.slideDirection      || 'left',
     slideDurationMs:    layer.slideDurationMs     ?? 1200,
     slideTransition:    layer.slideTransition     || 'linear',
+    slidePath:          layer.slidePath           || 'straight', slideSwing: layer.slideSwing ?? 12, slideSwings: layer.slideSwings ?? 4,
     slideHand:          !!layer.slideHand,
     slideHandStyle:     layer.slideHandStyle || 'auto',
     camFrame:           layer.camFrame ? { ...layer.camFrame } : null,

@@ -1779,6 +1779,9 @@ function setupSlideIn() {
   state.slideDurationMs = Math.max(100, Number(layer?.slideDurationMs) || 1200);
   state.slideDirection = layer?.slideDirection || 'left';
   state.slideTransition = layer?.slideTransition || 'linear';
+  state.slidePath = layer?.slidePath || 'straight';
+  state.slideSwing = (layer?.slideSwing ?? 12) / 100;      // width of the swing, as a share of the screen
+  state.slideSwings = layer?.slideSwings ?? 4;             // how many times it swings on the way in
 }
 
 function tickSlideIn() {
@@ -1799,8 +1802,30 @@ function tickSlideIn() {
   else if (state.slideDirection === 'top') startY = view.y - _bb.h - (layer.h - _bb.h) / 2;
   else if (state.slideDirection === 'bottom') startY = view.y + view.h - (layer.h - _bb.h) / 2;
   else startX = view.x - _bb.w - (layer.w - _bb.w) / 2;
-  const x = startX + (layer.x - startX) * ease;
-  const y = startY + (layer.y - startY) * ease;
+  // A path (zigzag, wave, Z) uses an even approach so the swings are spread over the whole way in.
+  const pathed = state.slidePath && state.slidePath !== 'straight';
+  const appr = pathed ? (state.slidePath === 'wave' ? t * t * (3 - 2 * t) : t) : ease;   // zigzag and Z: constant speed, so the turns are sharp
+  let x = startX + (layer.x - startX) * appr;
+  let y = startY + (layer.y - startY) * appr;
+  // Path: a sideways swing on top of the approach, shrinking to nothing as the image arrives.
+  if (pathed && t < 1) {
+    const side = state.slideDirection === 'left' || state.slideDirection === 'right';   // swing is perpendicular to the way in
+    const span = side ? view.h : view.w, left = 1 - t * 0.85;
+    let k;
+    const A = state.slideSwing ?? 0.12, N = state.slideSwings ?? 4;
+    if (state.slidePath === 'wave') k = Math.sin(t * Math.PI * 2 * N * 0.8) * A * 0.6;
+    else if (state.slidePath === 'z') {            // sudden jumps from side to side, with a short stop in between
+      const u = t * N, i = Math.min(N - 1, Math.floor(u)), f = u - i, side = j => (j % 2 ? A : -A);
+      const jump = 1 - Math.pow(1 - Math.min(1, f * 3), 3);
+      const prev = i === 0 ? 0 : side(i - 1);
+      k = prev + (side(i) - prev) * jump;
+    } else {                                       // zigzag swing: straight legs and sharp turns (triangle wave)
+      const u = t * N * 0.5, f = u - Math.floor(u), tri = f < 0.5 ? f * 4 - 1 : 3 - f * 4;
+      k = tri * A;
+    }
+    const d = k * span * left * (1 - Math.pow(t, 6));
+    if (side) y += d; else x += d;
+  }
   const baseOpacity = layer.opacity ?? 1;
   let alpha = baseOpacity;
   if (state.slideTransition === 'fade-in') alpha = baseOpacity * t;
@@ -1847,7 +1872,7 @@ const _SLOT_KEYS = [
   'noFlashFinish','contentBounds','animStyle','hand','zigzag','textAnimDir','textDrawStyle','outlineDetect','outlineAlgorithm','outlineStrokeStyle',
   'stPhase','stOutlineCanvas','stOutlinePts','stOutlineIdx','stOutlineLastDrawn',
   'stFillPts','stOutlineColor','stOutlineThickness',
-  'slideElapsedMs','slideLastTs','slideDurationMs','slideDirection','slideTransition',
+  'slideElapsedMs','slideLastTs','slideDurationMs','slideDirection','slideTransition','slidePath','slideSwing','slideSwings',
 ];
 
 // Swap slot state → global state (+ swap ctx/offscreen)
