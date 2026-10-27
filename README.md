@@ -37,6 +37,12 @@ Turn images and text into hand-drawn explainer videos — no sign-up, no waterma
 
 ## Getting Started
 
+### Optional access token (Cloudflare Pages)
+
+To put a token screen in front of the app, set an `ACCESS_TOKEN` variable (Pages > Settings > Variables and secrets, or `wrangler pages secret put ACCESS_TOKEN`). The `functions/api/login.js` Pages Function checks what the visitor types against it, and the page keeps the token in `sessionStorage` so a reload stays signed in (closing the tab signs out). Without the variable, or when the app is served without the function (for example `python -m http.server`), no login screen is shown.
+
+> This is a front door, not encryption: the app files themselves stay downloadable. For real access control use Cloudflare Access in front of the site.
+
 ### Run locally
 
 ```bash

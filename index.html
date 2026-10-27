@@ -3512,6 +3512,67 @@ input[type="number"]:focus { border-color: var(--accent); }
 </style>
 <body>
 
+<!-- Access gate: when the server has an ACCESS_TOKEN (see functions/api/login.js) the page asks for it first; the token
+     is kept in sessionStorage so a reload stays signed in. Without the variable (or the endpoint) the gate never shows. -->
+<style>
+html.ink-lock body > *:not(#ink-gate) { visibility: hidden !important; }
+#ink-gate { position: fixed; inset: 0; z-index: 2147483000; display: none; align-items: center; justify-content: center; background: #f6f5f1; font: 14px/1.4 system-ui, sans-serif; color: #1a1a1a; visibility: visible !important; }
+html.ink-lock #ink-gate.show { display: flex; }
+#ink-gate form { width: min(340px, 90vw); background: #fff; border: 1px solid #e2e0d8; border-radius: 12px; padding: 24px; box-shadow: 0 8px 30px rgba(0,0,0,.08); display: flex; flex-direction: column; gap: 12px; }
+#ink-gate h1 { margin: 0; font-size: 18px; }
+#ink-gate p { margin: 0; color: #777; font-size: 12px; }
+#ink-gate input { font: inherit; padding: 9px 10px; border: 1px solid #cfcdc4; border-radius: 8px; }
+#ink-gate input:focus { outline: 2px solid #2563eb; outline-offset: 1px; }
+#ink-gate button { font: inherit; font-weight: 600; padding: 9px; border: 0; border-radius: 8px; background: #1a1a1a; color: #fff; cursor: pointer; }
+#ink-gate button:disabled { opacity: .5; cursor: default; }
+#ink-gate .err { color: #c92a2a; font-size: 12px; min-height: 16px; }
+</style>
+<div id="ink-gate" role="dialog" aria-modal="true" aria-labelledby="ink-gate-title">
+  <form id="ink-gate-form">
+    <h1 id="ink-gate-title">Inkplainer</h1>
+    <p>Enter the access token to continue.</p>
+    <input type="password" id="ink-gate-token" placeholder="Access token" autocomplete="off" aria-label="Access token" required>
+    <div class="err" id="ink-gate-err" role="alert"></div>
+    <button type="submit" id="ink-gate-btn">Enter</button>
+  </form>
+</div>
+<script>
+(function () {
+  const root = document.documentElement, KEY = 'inkAccessToken';
+  const get = () => { try { return sessionStorage.getItem(KEY) || ''; } catch (e) { return ''; } };
+  const put = t => { try { if (t) sessionStorage.setItem(KEY, t); else sessionStorage.removeItem(KEY); } catch (e) {} };
+  const open = () => { root.classList.remove('ink-lock'); };
+  const ask = () => { document.getElementById('ink-gate').classList.add('show'); setTimeout(() => document.getElementById('ink-gate-token').focus(), 0); };
+  const login = token => fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }), cache: 'no-store' });
+  root.classList.add('ink-lock');
+  (async () => {
+    try {
+      const r = await fetch('/api/login', { cache: 'no-store' });
+      if (!r.ok || !(await r.json()).required) { open(); return; }              // no endpoint / no ACCESS_TOKEN set: no gate
+    } catch (e) { open(); return; }                                              // offline or served without the function
+    const saved = get();
+    if (saved) {
+      try { const r = await login(saved); if (r.ok) { open(); return; } if (r.status === 401) put(''); else { open(); return; } }
+      catch (e) { open(); return; }
+    }
+    ask();
+  })();
+  document.getElementById('ink-gate-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = document.getElementById('ink-gate-token'), err = document.getElementById('ink-gate-err'), btn = document.getElementById('ink-gate-btn');
+    const token = input.value.trim(); if (!token) return;
+    btn.disabled = true; err.textContent = '';
+    try {
+      const r = await login(token);
+      if (r.ok) { put(token); document.getElementById('ink-gate').classList.remove('show'); open(); return; }
+      err.textContent = r.status === 401 ? 'That token is not valid.' : 'Could not check the token (' + r.status + ').';
+    } catch (x) { err.textContent = 'Could not reach the server.'; }
+    btn.disabled = false; input.select();
+  });
+  window.inkLogout = () => { put(''); location.reload(); };
+})();
+</script>
+
 <div id="desktop-only-notice">
   <div class="desktop-only-card">
     <h1>Inkplainer works best on a desktop browser</h1>
