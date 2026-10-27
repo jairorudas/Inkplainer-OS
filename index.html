@@ -4790,7 +4790,8 @@ input[type="number"]:focus { border-color: var(--accent); }
       </div>
     </div>
     <div class="r2-foot">
-      <span class="r2-msg" id="r2-count"></span>
+      <button class="r2-btn" id="r2-upload-foot" onclick="r2UploadClick()" title="Add more images to this folder">⬆ Upload images</button>
+      <span class="r2-msg" id="r2-count" style="flex:1"></span>
       <button class="r2-btn primary" id="r2-import" onclick="r2ImportSelected()" disabled>Import selected</button>
     </div>
   </div>
@@ -11762,6 +11763,7 @@ function r2SetMode(mode) {
   document.getElementById('r2-mode-images').classList.toggle('primary', !audio);
   document.getElementById('r2-mode-audio').classList.toggle('primary', audio);
   document.getElementById('r2-tools').style.display = audio ? 'none' : '';
+  document.getElementById('r2-upload-foot').style.display = audio ? 'none' : '';
   document.getElementById('r2-tools-hint').style.display = audio ? 'none' : '';
   document.getElementById('r2-import').textContent = audio ? 'Add to timeline' : 'Import selected';
   document.getElementById('r2-filter').placeholder = audio ? 'Filter narrations…' : 'Filter this folder…';
@@ -12136,6 +12138,8 @@ function _r2UpdateCount(shown, nFolders) {
   document.getElementById('r2-import').disabled = n === 0;
   const canWrite = !!R2.wtoken;
   document.getElementById('r2-upload').disabled = !canWrite;
+  { const fb = document.getElementById('r2-upload-foot'), dest = _r2Folder(document.getElementById('r2-folder').value);
+    fb.title = canWrite ? 'Add images to ' + (dest || 'the bucket root') + ' (the folder you have open)' : 'Needs the write token: click to add it'; }
   document.getElementById('r2-folder').disabled = !canWrite;
   document.getElementById('r2-delete').disabled = !canWrite || n === 0;
   const hint = document.getElementById('r2-tools-hint');
@@ -12170,6 +12174,15 @@ async function _r2Put(key, body, type) {
   return 'ok';
 }
 
+// Footer button: the folder open in the list is the project's, so uploads land there and come back selected.
+function r2UploadClick() {
+  if (!R2.wtoken) {
+    _r2Msg('Uploading needs the write token. Add it under Connection.', true);
+    const c = document.getElementById('r2-connect'); if (c.style.display === 'none') r2ToggleConnect();
+    return;
+  }
+  document.getElementById('r2-upload-input').click();
+}
 async function r2Upload(fileList) {
   const files = [...fileList];
   if (!files.length || !R2.wtoken) return;
@@ -12190,8 +12203,9 @@ async function r2Upload(fileList) {
     } catch (err) { failed++; lastErr = err.message; if (/write token/.test(err.message)) break; }
   }
   try { await r2Reload(uploaded, folder ? folder + '/' : ''); } catch (e) {}
+  uploaded.forEach(k => R2.selected.add(k)); r2Render();             // ready to import with one click
   const parts = [];
-  if (ok) parts.push(`${ok} uploaded`); if (skipped) parts.push(`${skipped} skipped`); if (failed) parts.push(`${failed} failed${lastErr ? ' (' + lastErr + ')' : ''}`);
+  if (ok) parts.push(`${ok} uploaded to ${folder || 'the bucket root'}`); if (skipped) parts.push(`${skipped} skipped`); if (failed) parts.push(`${failed} failed${lastErr ? ' (' + lastErr + ')' : ''}`);
   _r2Msg(parts.join(', ') + '.', failed > 0);
 }
 
