@@ -5910,6 +5910,11 @@ document.addEventListener('keydown', e => {
   // Modifier shortcuts (Ctrl/Cmd)
   if (!mod) return;
   if (typing) return;
+  if ((e.key === 'd' || e.key === 'D') && !e.shiftKey && !e.altKey) {            // Ctrl/Cmd+D: duplicate the selected layer
+    e.preventDefault();                                                           // (the browser would bookmark the page)
+    if (state.selectedLayerId != null) duplicateLayer(state.selectedLayerId);
+    return;
+  }
   if (e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
     if (state.playing) {
@@ -7297,6 +7302,30 @@ function addLayer(img, name) {
   selectLayer(id);
   redrawLayersOnCanvas();
   scheduleAutoSave();
+}
+
+// Duplicate: same image and settings, a little to the side, right after the original (in the list and in the stacking order).
+function duplicateLayer(id) {
+  const src = getLayerById(id); if (!src || state.playing) return null;
+  pushUndoSnapshot();
+  const copy = {};
+  Object.keys(src).forEach(k => {
+    if (k[0] === '_' && !k.startsWith('_text')) return;                    // transient runtime fields
+    const v = src[k];
+    copy[k] = (v && typeof v === 'object' && !(v instanceof HTMLElement)) ? JSON.parse(JSON.stringify(v)) : v;   // fx / exit / enter / camFrame
+  });
+  copy.img = src.img;                                                       // the picture itself is shared, not copied
+  copy.id = ++_layerIdCounter;
+  copy.name = src.name + ' copy';
+  copy.x = Math.round(src.x + 30); copy.y = Math.round(src.y + 30);
+  state.layers.splice(state.layers.indexOf(src) + 1, 0, copy);
+  state.groups.forEach(g => { const i = g.layerIds.indexOf(id); if (i !== -1) g.layerIds.splice(i + 1, 0, copy.id); });
+  const seq = _stackSeq().filter(i => i !== copy.id); seq.splice(seq.indexOf(id) + 1, 0, copy.id);
+  _renumberLayers(seq, new Set([copy.id]));
+  state.layers.sort((a, b) => seq.indexOf(a.id) - seq.indexOf(b.id));
+  fitCanvas(); renderLayerList(); selectLayer(copy.id); redrawLayersOnCanvas(); scheduleAutoSave();
+  showToast('Duplicated — Ctrl+Z to undo');
+  return copy;
 }
 
 function removeLayer(id, noUndo) {
@@ -9858,7 +9887,7 @@ function moveLayerStack(id, how) {                       // how: 'front' | 'forw
   renderLayerList(); redrawLayersOnCanvas(); drawSelectionHandles(); scheduleAutoSave();
   return true;
 }
-const _STACK_ITEMS = [['front', 'Bring to front', 'Ctrl+Shift+]'], ['forward', 'Bring forward', 'Ctrl+]'], ['backward', 'Send backward', 'Ctrl+['], ['back', 'Send to back', 'Ctrl+Shift+[']];
+const _STACK_ITEMS = [['dup', 'Duplicate', 'Ctrl+D'], ['front', 'Bring to front', 'Ctrl+Shift+]'], ['forward', 'Bring forward', 'Ctrl+]'], ['backward', 'Send backward', 'Ctrl+['], ['back', 'Send to back', 'Ctrl+Shift+[']];
 function _closeStackMenu() { document.getElementById('stack-menu')?.remove(); }
 function openStackMenu(clientX, clientY, id) {
   _closeStackMenu();
@@ -9867,7 +9896,7 @@ function openStackMenu(clientX, clientY, id) {
   m.innerHTML = _STACK_ITEMS.map(([k, label, key]) => `<div data-how="${k}" style="display:flex;justify-content:space-between;gap:18px;padding:6px 10px;border-radius:5px;cursor:pointer"><span>${label}</span><span style="color:var(--muted)">${key}</span></div>`).join('');
   m.querySelectorAll('[data-how]').forEach(el => {
     el.onmouseenter = () => el.style.background = 'var(--surface-2)'; el.onmouseleave = () => el.style.background = '';
-    el.onclick = () => { _closeStackMenu(); moveLayerStack(id, el.dataset.how); };
+    el.onclick = () => { _closeStackMenu(); if (el.dataset.how === 'dup') duplicateLayer(id); else moveLayerStack(id, el.dataset.how); };
   });
   document.body.appendChild(m);
   const r = m.getBoundingClientRect(); if (r.right > innerWidth) m.style.left = (innerWidth - r.width - 8) + 'px'; if (r.bottom > innerHeight) m.style.top = (innerHeight - r.height - 8) + 'px';
