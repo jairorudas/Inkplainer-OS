@@ -37,6 +37,19 @@ Turn images and text into hand-drawn explainer videos — no sign-up, no waterma
 
 ## Getting Started
 
+### Deploying to Cloudflare Pages without GitHub
+
+`tools/deploy.sh` uploads a commit straight to Cloudflare Pages (wrangler direct upload): only the files committed in that ref go up, together with `functions/` (the login).
+
+```bash
+npx wrangler login
+npx wrangler pages project create inkplainer --production-branch main     # once
+npx wrangler pages secret put ACCESS_TOKEN --project-name inkplainer      # once, optional: turns the token screen on
+PAGES_PROJECT=inkplainer tools/deploy.sh                                   # publishes main
+```
+
+To publish every time you push `main` from this machine: `tools/install-deploy-hook.sh` (a local `pre-push` hook, not committed) and `echo inkplainer > .git/pages-project`. A failed deploy only warns. The hook only sees pushes made from this clone, so a branch merged somewhere else (for example on github.com) needs `tools/deploy.sh` run by hand after a `git pull`.
+
 ### Optional access token (Cloudflare Pages)
 
 To put a token screen in front of the app, set an `ACCESS_TOKEN` variable (Pages > Settings > Variables and secrets, or `wrangler pages secret put ACCESS_TOKEN`). The `functions/api/login.js` Pages Function checks what the visitor types against it, and the page keeps the token in `sessionStorage` so a reload stays signed in (closing the tab signs out). Without the variable, or when the app is served without the function (for example `python -m http.server`), no login screen is shown.
