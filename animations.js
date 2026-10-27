@@ -1927,18 +1927,34 @@ function _tickSlot(slot) {
 function _tickAllSlots() {
   if (!state._activeSlots || !state._activeSlots.length) return;
 
+  // Timeline stretch: a slot with scale > 1 ticks several times per frame (it draws faster), one with scale < 1
+  // skips frames (slower). `wallMs` counts the time it was drawing, so the timeline can learn its natural length.
+  const _nowTs = performance.now(), dtMs = state._tickTs ? Math.min(2000, _nowTs - state._tickTs) : 16.7;   // _tickTs is cleared on every (re)start, so a pause is not counted
+  state._tickTs = _nowTs;
+  const plan = state._activeSlots.map(slot => {
+    if (slot.done) return 0;
+    slot.wallMs = (slot.wallMs || 0) + dtMs;
+    const sc = slot.scale || 1;
+    if (sc === 1) return 1;
+    slot.acc = (slot.acc || 0) + sc;
+    const n = Math.min(12, Math.floor(slot.acc)); slot.acc -= n;
+    return n;
+  });
+
   // Suppress hctx.clearRect so each slot adds its hand without wiping previous ones
-  hctx.clearRect(0, 0, state.canvasW, state.canvasH);
+  // (a frame in which every slot is waiting keeps the hand where it was)
+  if (plan.some(n => n > 0)) hctx.clearRect(0, 0, state.canvasW, state.canvasH);
   const _origClear = hctx.clearRect.bind(hctx);
   hctx.clearRect = () => {};
 
   // _tickSlot lends the Speed/Chunks sliders to each layer; the user's own values are put back after the frame
   const _speedSnap = typeof speedSlidersSnapshot === 'function' ? speedSlidersSnapshot() : null;
-  state._activeSlots.forEach(slot => {
-    if (slot.done) return;
+  state._activeSlots.forEach((slot, i) => {
+    if (slot.done || !plan[i]) return;
     _slotIn(slot);
-    _tickSlot(slot);
+    for (let k = 0; k < plan[i] && !slot.done; k++) _tickSlot(slot);
     _slotOut(slot);
+    if (slot.done && typeof window.tlSlotDone === 'function') window.tlSlotDone(slot);
   });
   if (_speedSnap) speedSlidersRestore(_speedSnap);
 

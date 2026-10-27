@@ -2024,7 +2024,12 @@ input[type="number"]:focus { border-color: var(--accent); }
 .tl-tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--border-hi); padding-left: 3px; font-size: 9px; color: var(--muted); line-height: 22px; pointer-events: none; }
 .tl-lane { position: relative; height: 44px; border-bottom: 1px solid var(--border); }
 .tl-block { position: absolute; top: 6px; height: 32px; border-radius: 6px; padding: 0 8px; display: flex; align-items: center; font-size: 10px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
-.tl-group { background: #dbe4ff; border: 1px solid #91a7ff; color: #2b3a8a; }
+.tl-group { background: #dbe4ff; border: 1px solid #91a7ff; color: #2b3a8a; padding: 0; cursor: grab; }
+.tl-group.sel { box-shadow: 0 0 0 2px #3b5bdb; z-index: 2; }
+.tl-group .tl-gname { position: relative; padding: 0 8px; pointer-events: none; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+.tl-group .tl-handle:hover, .tl-group.sel .tl-handle { background: rgba(59,91,219,.4); }
+.tl-snap { position: absolute; top: 0; bottom: 0; border-left: 1px dashed #f08c00; z-index: 5; pointer-events: none; }
+.tl-inspector input[type=number] { width: 64px; font: inherit; font-size: 11px; padding: 2px 4px; border: 1px solid var(--border-hi); border-radius: 5px; background: var(--panel); color: var(--text); }
 .tl-group.est { background: repeating-linear-gradient(135deg, #eef2ff 0 6px, #e0e7ff 6px 12px); border-style: dashed; color: #5a6aa8; }
 .tl-clip { background: #d3f9d8; border: 1px solid #69db7c; color: #205a2a; padding: 0; cursor: grab; }
 .tl-clip.sel { box-shadow: 0 0 0 2px #2f9e44; z-index: 2; }
@@ -7294,8 +7299,8 @@ function addLayer(img, name) {
   scheduleAutoSave();
 }
 
-function removeLayer(id) {
-  pushUndoSnapshot();
+function removeLayer(id, noUndo) {
+  if (!noUndo) pushUndoSnapshot();
   // Remove from any group it belongs to
   state.groups.forEach(grp => {
     grp.layerIds = grp.layerIds.filter(lid => lid !== id);
@@ -7820,6 +7825,7 @@ function _generateNow() {
   state._animProgress  = 0;
   state._runId = (state._runId || 0) + 1;
   fxReset();
+  state._tlWait = null; state._tlWaited = -1; state._tickTs = null;
   state._runLog = { t0: performance.now(), groups: [], pausedMs: 0, pausedAt: null };
   tlRunStarted();
   cameraReset();
@@ -7849,6 +7855,18 @@ function _generateNow() {
 
 function _runGroupAt(gpos) {
   if (!state._animGroups || gpos >= state._animGroups.length) { _allLayersDone(); return; }
+  // A clip the user placed later on the timeline: hold on the last frame until its time comes
+  if (state._tlWaited !== gpos) {
+    const w = tlWaitSec(gpos);
+    if (w > 0.05) {
+      const L = state._runLog; if (gpos > 0 && L && L.groups[gpos - 1] && L.groups[gpos - 1].end == null) L.groups[gpos - 1].end = tlRunMs();   // the wait is not part of the previous clip
+      state._tlWait = { gpos, until: tlRunMs() / 1000 + w };
+      if (gpos === 0) { _mainCtx.clearRect(0, 0, state.canvasW, state.canvasH); fillBg(_mainCtx); hctx.clearRect(0, 0, state.canvasW, state.canvasH); }
+      state.playing = true; updatePlayIcons(); animate();
+      return;
+    }
+    state._tlWaited = gpos;
+  }
   // Groups that leave the scene: let them go first, then start this group (the wait counts in the timeline)
   if (gpos > 0 && state._fx && state._fx.gated !== gpos) {
     const leaving = fxExitPlan(gpos);
@@ -7908,6 +7926,7 @@ function _runGroupAt(gpos) {
       ctx:    sc.getContext('2d'),
       offscreen: null,
       done:  false,
+      scale: tlSlotScale(layer, group[0]),
       _state: {},
       _saved: {},
     };
@@ -8207,6 +8226,11 @@ const TL = {
   gapSec: 0.2,             // pause between groups in the animation engine
   measured: {},            // group signature -> seconds, from the last play
   tracks: [{ id: 1, name: 'Narration', volume: 1, clips: [] }],
+  art: {},                 // lead layer id of a group -> { start?, dur? }: where the user pinned the clip / how long they made it
+  nat: {},                 // layer id -> seconds it takes to draw at normal speed (measured on each play)
+  selArt: new Set(),       // selected art clips (lead layer ids)
+  ov: null, ovDur: null,   // a clip being dragged / stretched right now: { lead, start, reorder } / { lead, dur }
+  snapAt: null,            // time of the snap guide while dragging
   sel: null,               // selected clip id
   playhead: 0,
   clipId: 0, trackId: 1, activeTrack: 1,   // activeTrack: where new audio goes
@@ -8225,6 +8249,7 @@ function tlGroups() {
   getAnimOrder().forEach(l => { const k = l.animOrder ?? `__${l.id}`; if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
   return [...map.values()].map(layers => ({
     layers,
+    lead: layers[0].id,
     sig: layers.map(l => l.id).sort((a, b) => a - b).join('+'),
     name: layers[0].name + (layers.length > 1 ? ` +${layers.length - 1}` : ''),
   }));
@@ -8242,16 +8267,48 @@ function tlSyncGroups() {
   if (p && !p.classList.contains('collapsed')) tlRender();           // tlRender records the signature it drew
   else _tlGroupSig = null;                                           // collapsed: it is redrawn when it is opened
 }
-function tlLayout() {
-  let t = 0;
-  return tlGroups().map(g => {
-    const m = TL.measured[g.sig];
-    const dur = m ?? TL.defaultGroupSec;
-    const b = { ...g, start: t, dur, est: m === undefined };
-    t += dur + TL.gapSec;
-    return b;
-  });
+// ── Art clips (animation groups) ─────────────────────────────────────────────────────────────────
+// Each group is a clip on the Art track. Its length is the time the drawing takes; the user can stretch it (the engine
+// then draws faster or slower, see tlSlotScale) and pin it later on the timeline (the engine holds until then).
+const tlIsSlide = l => (l.animStyle || state.animStyle) === 'slidein';
+function tlGroupDur(g) {
+  if (TL.ovDur && TL.ovDur.lead === g.lead) return TL.ovDur.dur;
+  if (g.layers.every(tlIsSlide)) return Math.max(...g.layers.map(l => l.slideDurationMs ?? 1200)) / 1000;   // Slide In has its own length
+  const a = TL.art[g.lead]; if (a && a.dur) return a.dur;
+  const m = TL.measured[g.sig]; if (m !== undefined) return m;
+  return Math.max(0, ...g.layers.map(l => TL.nat[l.id] || 0)) || TL.defaultGroupSec;
 }
+const tlGroupKnown = g => g.layers.every(tlIsSlide) || !!(TL.art[g.lead] && TL.art[g.lead].dur) || TL.measured[g.sig] !== undefined || g.layers.some(l => TL.nat[l.id]);
+// A clip can be stretched once its natural length is known (it is measured on every play); Slide In always can.
+const tlStretchable = g => g.layers.every(l => tlIsSlide(l) || TL.nat[l.id]);
+// Clips back to back (plus the engine's short gap); a pinned clip waits for its start, and pushes the ones after it.
+function tlFlow(gs) { let t = 0; return gs.map(g => { const start = Math.max(t, g.pin ?? 0); t = start + g.dur + TL.gapSec; return { ...g, start }; }); }
+function tlLayout() {
+  const ov = TL.ov;
+  const gs = tlGroups().map(g => ({ ...g, dur: tlGroupDur(g), est: !tlGroupKnown(g), pin: ov && ov.lead === g.lead ? ov.start : TL.art[g.lead]?.start }));
+  const d = ov && ov.reorder ? gs.find(g => g.lead === ov.lead) : null;
+  if (!d) return tlFlow(gs);
+  const others = gs.filter(g => g !== d), flow = tlFlow(others), c = d.pin + d.dur / 2;
+  others.splice(flow.filter(g => g.start + g.dur / 2 < c).length, 0, d);   // dropped past a neighbour's middle: it takes its place
+  return tlFlow(others);
+}
+// Engine hooks ------------------------------------------------------------------------------------------------
+// Seconds the run still has to wait before group `gpos` may start (0 unless the clip is pinned later on the timeline).
+function tlWaitSec(gpos) {
+  const g = state._animGroups && state._animGroups[gpos], a = g && TL.art[g[0].id];
+  return a && a.start != null ? a.start - tlRunMs() / 1000 : 0;
+}
+// Drawing speed of a layer so that its clip lasts as long as the user made it (ticks per frame; 1 = normal).
+function tlSlotScale(layer, lead) {
+  const a = TL.art[lead.id], nat = TL.nat[layer.id];
+  return !tlIsSlide(layer) && a && a.dur && nat ? Math.min(12, Math.max(0.1, nat / a.dur)) : 1;
+}
+// A layer finished drawing: remember how long it takes at normal speed (what it took, times the stretch it ran with).
+function tlSlotDone(slot) {
+  const l = slot.layer; if (!l || tlIsSlide(l) || !slot.wallMs) return;
+  TL.nat[l.id] = Math.round(slot.wallMs * (slot.scale || 1)) / 1000;
+}
+window.tlSlotDone = tlSlotDone;
 function tlTotal() {
   const g = tlLayout(), gEnd = g.length ? g[g.length - 1].start + g[g.length - 1].dur : 0;
   const cEnd = Math.max(0, ...TL.tracks.flatMap(t => t.clips.map(c => c.start + tlClipLen(c))));
@@ -8327,13 +8384,8 @@ function tlRender() {
   ruler.onmousedown = tlScrub;
   frag.appendChild(ruler);
   // groups lane
-  const glane = document.createElement('div'); glane.className = 'tl-lane'; glane.onmousedown = e => { if (e.target === glane) tlScrub(e); };
-  tlLayout().forEach((g, i) => {
-    const b = document.createElement('div'); b.className = 'tl-block tl-group' + (g.est ? ' est' : '');
-    b.style.left = g.start * TL.pps + 'px'; b.style.width = Math.max(8, g.dur * TL.pps) + 'px';
-    b.textContent = `${i + 1} · ${g.name}`; b.title = `${g.name} — ${g.dur.toFixed(1)} s${g.est ? ' (estimate: play the animation once to measure it)' : ''}`;
-    glane.appendChild(b);
-  });
+  const glane = document.createElement('div'); glane.className = 'tl-lane'; glane.onmousedown = e => { if (e.target === glane) { TL.selArt.clear(); TL.sel = null; tlRender(); tlScrub(e); } };
+  tlLayout().forEach((g, i) => glane.appendChild(tlArtEl(g, i)));
   frag.appendChild(glane);
   // audio lanes
   TL.tracks.forEach(tr => {
@@ -8346,6 +8398,7 @@ function tlRender() {
   const handle = document.createElement('div'); handle.className = 'tl-playhead-handle'; ph.appendChild(handle);
   ph.onmousedown = tlScrub;
   frag.appendChild(ph);
+  if (TL.snapAt != null) { const sn = document.createElement('div'); sn.className = 'tl-snap'; sn.style.left = TL.snapAt * TL.pps + 'px'; frag.appendChild(sn); }
   inner.textContent = ''; inner.appendChild(frag);
   // lane labels
   const labels = document.getElementById('tl-labels'); labels.textContent = '';
@@ -8380,6 +8433,32 @@ function tlRender() {
   tlDrawWaves(); tlInspector();
   document.getElementById('tl-time').textContent = tlFmt(TL.playhead);
 }
+// A small strip of the group's images, repeated along the clip like a video filmstrip.
+const _tlTiles = new WeakMap();
+function tlTile(layers) {
+  const imgs = layers.slice(0, 3).map(l => l.img).filter(i => i && (i.width || i.naturalWidth));
+  if (!imgs.length) return '';
+  const key = imgs.map(i => (i.width || i.naturalWidth) + 'x' + (i.height || i.naturalHeight)).join(','), hit = _tlTiles.get(imgs[0]);
+  if (hit && hit.key === key) return hit.url;
+  const H = 30, parts = imgs.map(i => { const w = i.width || i.naturalWidth, h = i.height || i.naturalHeight; return { i, w: Math.max(8, Math.min(46, Math.round(H * w / h))) }; });
+  const cv = document.createElement('canvas'); cv.width = parts.reduce((a, p) => a + p.w + 2, 0); cv.height = H + 2;
+  const g = cv.getContext('2d'); g.fillStyle = 'rgba(255,255,255,.75)'; g.fillRect(0, 0, cv.width, cv.height);
+  let x = 1; parts.forEach(p => { try { g.drawImage(p.i, x, 1, p.w, H); } catch (e) {} x += p.w + 2; });
+  let url = ''; try { url = cv.toDataURL('image/png'); } catch (e) {}
+  _tlTiles.set(imgs[0], { key, url }); return url;
+}
+function tlArtEl(g, i) {
+  const b = document.createElement('div');
+  b.className = 'tl-block tl-group' + (g.est ? ' est' : '') + (TL.selArt.has(g.lead) ? ' sel' : ''); b.dataset.lead = g.lead;
+  b.style.left = g.start * TL.pps + 'px'; b.style.width = Math.max(8, g.dur * TL.pps) + 'px';
+  const tile = tlTile(g.layers);
+  if (tile) { b.style.backgroundImage = `url(${tile})`; b.style.backgroundRepeat = 'repeat-x'; b.style.backgroundSize = 'auto 100%'; }
+  const nm = document.createElement('span'); nm.className = 'tl-gname'; nm.textContent = `${i + 1} · ${g.name}`; b.appendChild(nm);
+  b.title = `${g.name} — ${g.dur.toFixed(1)} s${g.est ? ' (estimate: play the animation once to measure it)' : ''}\nDrag to move · drag the edges to stretch · Shift/Ctrl+click for several · Delete removes`;
+  ['l', 'r'].forEach(side => { const h = document.createElement('div'); h.className = 'tl-handle ' + side; h.onmousedown = e => tlArtDrag(e, g, side); b.appendChild(h); });
+  b.onmousedown = e => { if (!e.target.classList.contains('tl-handle')) tlArtDrag(e, g, 'move'); };
+  return b;
+}
 function tlClipEl(c) {
   const el = document.createElement('div'); el.className = 'tl-block tl-clip' + (TL.sel === c.id ? ' sel' : ''); el.dataset.clip = c.id;
   el.style.left = c.start * TL.pps + 'px'; el.style.width = Math.max(10, tlClipLen(c) * TL.pps) + 'px';
@@ -8408,7 +8487,8 @@ function tlFindClip(id) { for (const t of TL.tracks) { const c = t.clips.find(c 
 function tlInspector() {
   const box = document.getElementById('tl-inspector'); if (!box) return;
   const c = TL.sel ? tlFindClip(TL.sel) : null;
-  if (!c) { box.textContent = TL.tracks.some(t => t.clips.length) ? 'Select an audio clip to set its volume and speed.' : 'Add narration with “+ Add audio”. Drag clips to place them, drag their edges to cut where they end.'; return; }
+  if (!c && TL.selArt.size) { tlArtInspector(box); return; }
+  if (!c) { box.textContent = TL.tracks.some(t => t.clips.length) ? 'Select a clip to edit it: drag to move, drag its edges to stretch, S splits audio at the red line, Delete removes.' : 'Add narration with “+ Add audio”. Drag clips to place them, drag their edges to cut where they end.'; return; }
   box.innerHTML = '';
   const name = document.createElement('b'); name.className = 'tl-inspector-name'; name.title = 'Click to rename'; name.onclick = () => tlRenameClip(c.id, name); name.textContent = c.name; name.style.maxWidth = '180px'; name.style.overflow = 'hidden'; name.style.textOverflow = 'ellipsis'; name.style.whiteSpace = 'nowrap';
   const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = Math.round(c.volume * 100); vol.onpointerdown = () => pushUndoSnapshot(); vol.oninput = () => { c.volume = vol.value / 100; vl.textContent = vol.value + '%'; updateRangeFill(vol); }; vol.onchange = tlChanged;
@@ -8434,8 +8514,8 @@ function tlDrag(e, c, mode) {
   TL.sel = c.id; pushUndoSnapshot();
   const x0 = e.clientX, o = { start: c.start, trimIn: c.trimIn, trimOut: c.trimOut };
   const dur = TL.buffers.get(c.id).duration;
-  const marks = tlLayout().flatMap(g => [g.start, g.start + g.dur]);          // snap targets
-  const snap = t => { const tol = 8 / TL.pps; const m = marks.find(x => Math.abs(x - t) <= tol); return m === undefined ? t : m; };
+  const marks = tlSnapMarks(c.id, null);                                       // snap targets: art edges, other clips, the red line
+  const snap = t => tlSnapEdge(t, marks);
   const move = ev => {
     const dt = (ev.clientX - x0) / TL.pps;
     if (mode === 'move') {
@@ -8457,10 +8537,187 @@ function tlDrag(e, c, mode) {
     }
     tlRender();
   };
-  const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); tlChanged(); };
+  const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); TL.snapAt = null; tlRender(); tlChanged(); };
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  TL.selArt.clear(); tlRender();
+}
+// ── CapCut-style editing of the art clips ────────────────────────────────────────────────────────────────────
+function tlSnapMarks(exclClip, exclLead) {
+  const m = [0, TL.playhead], ov = TL.ov, od = TL.ovDur; TL.ov = TL.ovDur = null;       // from the layout as it stands, not as it is being dragged
+  tlLayout().forEach(g => { if (g.lead !== exclLead) m.push(g.start, g.start + g.dur); });
+  TL.ov = ov; TL.ovDur = od;
+  TL.tracks.forEach(t => t.clips.forEach(c => { if (c.id !== exclClip) m.push(c.start, c.start + tlClipLen(c)); }));
+  return m;
+}
+function tlSnapEdge(t, marks) {                                    // one edge
+  const tol = 8 / TL.pps; let best = null;
+  for (const m of marks) { const d = Math.abs(t - m); if (d <= tol && (!best || d < best.d)) best = { d, m }; }
+  TL.snapAt = best ? best.m : null; return best ? best.m : t;
+}
+function tlSnapSpan(start, len, marks) {                           // both edges of a clip being moved
+  const tol = 8 / TL.pps; let best = null;
+  for (const m of marks) for (const off of [0, len]) { const d = Math.abs(start + off - m); if (d <= tol && (!best || d < best.d)) best = { d, s: m - off, m }; }
+  TL.snapAt = best ? best.m : null; return best ? best.s : start;
+}
+function tlSelectLayerOf(g) {
+  const id = g.layers[0].id;
+  if (state.playing || state.selectedLayerId === id) return;
+  state.selectedLayerId = id; renderLayerList(); drawSelectionHandles(); syncSidebarToLayer(id);
+}
+function tlArtDrag(e, g, mode) {
+  e.preventDefault(); e.stopPropagation();
+  if (e.shiftKey || e.metaKey || e.ctrlKey) {                       // add to / remove from the selection
+    if (TL.selArt.has(g.lead)) TL.selArt.delete(g.lead); else TL.selArt.add(g.lead);
+    TL.sel = null; tlRender(); return;
+  }
+  if (!TL.selArt.has(g.lead) || TL.sel) TL.selArt = new Set([g.lead]);
+  TL.sel = null; tlSelectLayerOf(g);
+  if (mode !== 'move' && !tlStretchable(g)) { tlRender(); showToast('Play the animation once so this clip’s real length is measured, then you can stretch it', null, 3200); return; }
+  const lead = g.lead, x0 = e.clientX, start0 = g.start, end0 = g.start + g.dur, idx = tlLayout().findIndex(x => x.lead === lead);
+  const prev = idx > 0 ? tlLayout()[idx - 1] : null, minStart = prev ? prev.start + prev.dur + TL.gapSec : 0;
+  const marks = tlSnapMarks(null, lead), orderBefore = tlGroups().map(x => x.lead).join();
+  let moved = false;
+  const move = ev => {
+    const dx = ev.clientX - x0; if (!moved && Math.abs(dx) < 3) return;
+    if (!moved) { moved = true; pushUndoSnapshot(); }
+    if (mode === 'move') TL.ov = { lead, start: Math.max(0, tlSnapSpan(start0 + dx / TL.pps, g.dur, marks)), reorder: true };
+    else if (mode === 'r') TL.ovDur = { lead, dur: Math.max(0.3, tlSnapEdge(end0 + dx / TL.pps, marks) - start0) };
+    else {
+      const st = Math.min(end0 - 0.3, Math.max(minStart, tlSnapEdge(start0 + dx / TL.pps, marks)));
+      TL.ov = { lead, start: st, reorder: false }; TL.ovDur = { lead, dur: end0 - st };
+    }
+    tlRender();
+  };
+  const up = () => {
+    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+    TL.snapAt = null;
+    if (!moved) { tlRender(); return; }
+    const L = tlLayout(), d = L.find(x => x.lead === lead), ovd = TL.ovDur;
+    TL.ov = TL.ovDur = null;
+    if (mode === 'move') {
+      const order = L.map(x => x.lead);
+      if (order.join() !== orderBefore) { const by = new Map(tlGroups().map(x => [x.lead, x])); order.forEach((id, i) => by.get(id).layers.forEach(l => { l.animOrder = i + 1; })); renderLayerList(); }
+      const a = TL.art[lead] || (TL.art[lead] = {});
+      delete a.start;                                               // dropped where it would flow anyway: stay attached to its neighbour
+      const flowAt = tlLayout().find(x => x.lead === lead).start;
+      if (Math.abs(d.start - flowAt) > 0.05) a.start = Math.round(d.start * 100) / 100;
+    } else {
+      tlSetArtDur(g, ovd.dur, mode === 'l' ? d.start : undefined);
+    }
+    tlRender(); tlChanged();
+  };
   document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
   tlRender();
 }
+// Make a clip last `dur` seconds (and, for the left edge, start at `start`).
+function tlSetArtDur(g, dur, start) {
+  if (!tlStretchable(g)) { showToast('Play the animation once so this clip’s real length is measured, then you can stretch it', null, 3200); return false; }
+  dur = Math.max(0.3, dur);
+  const a = TL.art[g.lead] || (TL.art[g.lead] = {});
+  a.dur = Math.round(dur * 100) / 100;
+  if (start !== undefined) a.start = Math.round(start * 100) / 100;
+  g.layers.forEach(l => { if (tlIsSlide(l)) l.slideDurationMs = Math.round(dur * 1000); });   // Slide In keeps its length on the layer
+  if (state.selectedLayerId != null && g.layers.some(l => l.id === state.selectedLayerId)) syncSidebarToLayer(state.selectedLayerId);
+  return true;
+}
+// Delete the selected art clips. `ripple` closes the gap (the clips after move up); otherwise the gap stays, like CapCut.
+function tlDeleteArt(ripple) {
+  const L = tlLayout(), del = L.filter(g => TL.selArt.has(g.lead)); if (!del.length) return;
+  pushUndoSnapshot();
+  L.filter(g => !TL.selArt.has(g.lead)).forEach(g => {
+    const gone = del.filter(d => d.start < g.start); if (!gone.length) return;
+    const a = TL.art[g.lead] || (TL.art[g.lead] = {});
+    if (!ripple) a.start = Math.round(g.start * 100) / 100;
+    else if (a.start != null) a.start = Math.max(0, Math.round((a.start - gone.reduce((t, d) => t + d.dur + TL.gapSec, 0)) * 100) / 100);
+  });
+  del.forEach(g => { g.layers.forEach(l => removeLayer(l.id, true)); delete TL.art[g.lead]; });
+  TL.selArt.clear(); tlRender(); tlChanged();
+  showToast(del.length + (del.length > 1 ? ' clips' : ' clip') + ' deleted — Ctrl+Z to undo');
+}
+function tlArtInspector(box) {
+  const sel = tlLayout().filter(g => TL.selArt.has(g.lead)); if (!sel.length) { box.textContent = ''; return; }
+  box.innerHTML = '';
+  const lbl = t => { const x = document.createElement('span'); x.textContent = t; return x; };
+  const btn = (t, title, fn, cls) => { const b = document.createElement('button'); b.className = 'tl-btn' + (cls ? ' ' + cls : ''); b.textContent = t; b.title = title; b.onclick = fn; return b; };
+  if (sel.length === 1) {
+    const g = sel[0], name = document.createElement('b'); name.textContent = g.name; name.style.cssText = 'max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    const len = document.createElement('input'); len.type = 'number'; len.min = '0.3'; len.step = '0.1'; len.value = g.dur.toFixed(1);
+    len.title = tlStretchable(g) ? 'How long the drawing takes' : 'Play the animation once to measure this clip, then you can change its length';
+    len.disabled = !tlStretchable(g);
+    len.onkeydown = e => e.stopPropagation();
+    len.onchange = () => { pushUndoSnapshot(); if (tlSetArtDur(g, +len.value || g.dur)) { tlRender(); tlChanged(); } };
+    const info = lbl(`starts ${tlFmt(g.start)} · ends ${tlFmt(g.start + g.dur)}${g.est ? ' · estimate' : ''}`); info.style.marginLeft = 'auto';
+    const a = TL.art[g.lead];
+    const reset = btn('Reset timing', 'Back to automatic: right after the previous clip, at its natural speed', () => { pushUndoSnapshot(); delete TL.art[g.lead]; tlRender(); tlChanged(); });
+    reset.disabled = !(a && (a.start != null || a.dur));
+    box.append(name, lbl('Length'), len, lbl('s'), info, reset);
+  } else box.append(lbl(sel.length + ' clips selected'));
+  const spacer = box.children.length && sel.length > 1 ? Object.assign(document.createElement('span'), { style: 'margin-left:auto' }) : null; if (spacer) box.append(spacer);
+  box.append(
+    btn('Delete', 'Delete the clip and leave a gap (Delete)', () => tlDeleteArt(false), 'tl-danger'),
+    btn('Delete & close gap', 'Delete the clip and move the next ones up (Shift+Delete)', () => tlDeleteArt(true), 'tl-danger'));
+}
+
+// Cut the audio clip under the red line in two (the selected one, or every clip the line crosses).
+function tlSplitAudio() {
+  const t = TL.playhead, inside = c => t > c.start + 0.05 && t < c.start + tlClipLen(c) - 0.05;
+  const targets = (TL.sel ? [tlFindClip(TL.sel)] : TL.tracks.flatMap(tr => tr.clips)).filter(c => c && inside(c));
+  if (!targets.length) { showToast('Put the red line over an audio clip to split it'); return; }
+  pushUndoSnapshot();
+  let last = null;
+  targets.forEach(c => {
+    const track = TL.tracks.find(tr => tr.clips.includes(c)), cut = c.trimIn + (t - c.start) * c.rate;     // cut point inside the source audio
+    const right = { ...c, id: ++TL.clipId, start: t, trimIn: cut };
+    c.trimOut = cut;
+    TL.buffers.set(right.id, TL.buffers.get(c.id)); TL.peaks.set(right.id, TL.peaks.get(c.id));
+    const blob = TL.blobs.get(c.id); if (blob) { TL.blobs.set(right.id, blob); tlStoreBlob(right.id, blob); }
+    track.clips.splice(track.clips.indexOf(c) + 1, 0, right); last = right;
+  });
+  TL.sel = last.id; TL.selArt.clear();
+  tlRender(); tlChanged(); tlPrepareAll();
+}
+
+document.addEventListener('mousedown', e => { TL.focus = !!(e.target.closest && e.target.closest('#timeline-panel')); }, true);
+document.addEventListener('keydown', e => {
+  if (!TL.focus) return;
+  const tag = document.activeElement && document.activeElement.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  const mod = e.ctrlKey || e.metaKey; let done = false;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !mod) {
+    if (TL.selArt.size) { tlDeleteArt(e.shiftKey); done = true; }
+    else if (TL.sel && tlFindClip(TL.sel)) { tlRemoveClip(TL.sel); done = true; }
+  } else if ((e.key === 's' || e.key === 'S') && !mod && !e.altKey) { tlSplitAudio(); done = true; }
+  else if ((e.key === 'b' || e.key === 'B') && mod) { tlSplitAudio(); done = true; }
+  else if (e.key === 'Escape' && (TL.selArt.size || TL.sel)) { TL.selArt.clear(); TL.sel = null; tlRender(); done = true; }
+  if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
+
+// Ctrl/Cmd + wheel (or a trackpad pinch) zooms around the pointer, like CapCut.
+function tlWheelZoom(e) {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const sc = document.getElementById('tl-scroll'), z = document.getElementById('tl-zoom'), r = sc.getBoundingClientRect();
+  const px = e.clientX - r.left, at = (px + sc.scrollLeft) / TL.pps;
+  TL.pps = Math.max(+z.min, Math.min(+z.max, TL.pps * Math.exp(-e.deltaY * 0.01)));
+  z.value = TL.pps; updateRangeFill(z); tlRender();
+  sc.scrollLeft = at * TL.pps - px;
+}
+document.getElementById('tl-scroll').addEventListener('wheel', tlWheelZoom, { passive: false });
+
+// The red line follows the run even when there is no audio, and the view follows the red line.
+function tlFollowRun() {
+  cancelAnimationFrame(TL.followRaf);
+  const id = state._runId, step = () => {
+    if (id !== state._runId || !state._runLog) return;
+    if (!TL.playing) {
+      TL.playhead = tlRunMs() / 1000; tlMovePlayhead();
+      const sc = document.getElementById('tl-scroll'), x = TL.playhead * TL.pps;
+      if (sc && sc.clientWidth && (x > sc.scrollLeft + sc.clientWidth - 30 || x < sc.scrollLeft)) sc.scrollLeft = Math.max(0, x - 60);
+    }
+    if (!state.done) TL.followRaf = requestAnimationFrame(step);
+  };
+  TL.followRaf = requestAnimationFrame(step);
+}
+
 function tlMovePlayhead() {
   const ph = document.getElementById('tl-playhead'); if (ph) ph.style.left = TL.playhead * TL.pps + 'px';
   const tm = document.getElementById('tl-time'); if (tm) tm.textContent = tlFmt(TL.playhead);
@@ -8726,6 +8983,7 @@ function tlSyncTransport() {
 // The animation (re)started: start the narration with it. An MP4 export mixes the audio offline instead.
 function tlRunStarted() {
   tlStopAudio(false);
+  tlFollowRun();
   if (state._recSync) { if (state._recSync.runStartFrame == null) state._recSync.runStartFrame = state._recSync.frames; return; }
   if (!tlHasAudio()) return;
   TL.playhead = 0; tlPlayAudio(0);
@@ -8781,16 +9039,18 @@ async function tlEncodeMp4Audio(plan, muxer, videoSec, runStartSec) {
 function tlSerialize() {
   return {
     clipSeq: TL.clipId, trackSeq: TL.trackId,
+    art: JSON.parse(JSON.stringify(TL.art)), nat: { ...TL.nat },
     tracks: TL.tracks.map(t => ({ id: t.id, name: t.name, volume: tlTrackVol(t), clips: t.clips.map(c => ({ id: c.id, name: c.name, start: c.start, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, rate: c.rate, keep: c.keep !== false })) })),
   };
 }
 function tlReset() {
   tlStopAudio(false);
-  TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }]; TL.trackId = 1; TL.activeTrack = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {};
+  TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }]; TL.trackId = 1; TL.activeTrack = 1; TL.clipId = 0; TL.sel = null; TL.playhead = 0; TL.measured = {}; TL.art = {}; TL.nat = {}; TL.selArt = new Set(); TL.ov = TL.ovDur = null;
   TL.buffers.clear(); TL.peaks.clear(); TL.blobs.clear(); TL.stretched.clear(); TL.stretching.clear(); tlRender();
 }
 function tlApplyMeta(meta) {        // undo/redo: the decoded audio stays in memory, only the layout is swapped
   if (!meta || !meta.tracks) return;
+  TL.art = JSON.parse(JSON.stringify(meta.art || {})); TL.nat = { ...(meta.nat || {}) }; TL.selArt = new Set();
   TL.tracks = JSON.parse(JSON.stringify(meta.tracks)).map(t => ({ ...t, clips: t.clips.filter(c => TL.buffers.has(c.id)) }));
   if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }];
   if (TL.sel && !tlFindClip(TL.sel)) TL.sel = null;
@@ -8818,6 +9078,7 @@ function tlLoadBlob(projectId, clipId) {
 }
 async function tlRestore(meta, projectId) {
   if (!meta || !meta.tracks) return;
+  TL.art = JSON.parse(JSON.stringify(meta.art || {})); TL.nat = { ...(meta.nat || {}) };
   TL.tracks = meta.tracks.map(t => ({ id: t.id, name: t.name, volume: t.volume == null ? 1 : t.volume, clips: [] }));
   TL.trackId = meta.trackSeq || Math.max(1, ...TL.tracks.map(t => t.id)); TL.clipId = meta.clipSeq || 0;
   if (!TL.tracks.length) TL.tracks = [{ id: 1, name: 'Narration', volume: 1, clips: [] }];
@@ -12678,6 +12939,12 @@ function setProgress(ratio) {
 
 function animate() {
   if (!state.playing) return;
+  if (state._tlWait) {                                              // waiting for a clip's start time on the timeline
+    const W = state._tlWait;
+    if (tlRunMs() / 1000 >= W.until) { state._tlWait = null; state._tlWaited = W.gpos; state.playing = false; _runGroupAt(W.gpos); return; }
+    state.animFrame = requestAnimationFrame(animate);
+    return;
+  }
   if (state._fx && (state._fx.tail || state._fx.gate)) return;      // the effects tail / exit gate has its own loop (see fxIdleFrame)
   // Parallel slot mode — tick all active slots then composite
   if (state._activeSlots && state._activeSlots.some(s => !s.done)) {
@@ -12716,6 +12983,7 @@ function animate() {
 
 function resetAnim() {
   fxReset();
+  state._tlWait = null; state._tlWaited = -1;
   state._runId = (state._runId || 0) + 1;     // cancels a group hand-over that is still waiting on its timer
   tlStopAudio(false);
   cancelAnimationFrame(state.animFrame);
@@ -12760,6 +13028,7 @@ function restartAnim() {
 }
 
 function startAnim()  {
+  state._tickTs = null;
   (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
   state.slideLastTs = null;
   state.playing=true; updatePlayIcons(); animate();
@@ -12771,6 +13040,7 @@ function togglePlay() {
   tlOnPlayToggle(state.playing);
   updatePlayIcons();
   if (state.playing) {
+    state._tickTs = null;
     (state._activeSlots || []).forEach(slot => { if (slot._state) slot._state.slideLastTs = null; });
     state.slideLastTs = null;
     if (!(state._fx && (state._fx.tail || state._fx.gate))) animate();     // in the effects tail / exit gate the effects loop runs on its own
